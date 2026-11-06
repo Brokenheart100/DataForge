@@ -159,13 +159,15 @@ PostgreSQL 实现 → 树搜索与 DDL 面板 → 测试。
 
 批次：`infrastructure/ssh/tunnel.ts` → 连接配置与 SecretStorage → SQLite 或 SQL Server 适配器 → 测试与文档。
 
+状态：✅ 实现完成（SSH 隧道 + 连接对话框；SQL Server 只读驱动与能力矩阵；SQLite 继续推迟）。
+
 ### 10.1 Todo List
 
-- [ ] SSH 隧道：本地转发、密钥/口令进 SecretStorage、断开即关闭
-- [ ] 连接对话框：隧道开关与字段校验
-- [ ] 第三个驱动：只读查询 + 元数据 + 能力矩阵声明
-- [ ] 能力矩阵 UI：按驱动隐藏不支持的操作
-- [ ] `docs/drivers.md` 更新为新驱动步骤
+- [x] SSH 隧道：`ssh2` 本地转发绑定 `127.0.0.1:0`，口令/私钥口令进 SecretStorage（`ssh-password`、`ssh-passphrase`），断开、删除连接或连接失败都会关闭隧道（5 个单测）
+- [x] 连接对话框：隧道开关与字段校验；支持密码与私钥（含 passphrase），SSH 端口默认 22，切到 SQL Server 时自动只读并预填 1433
+- [x] 第三个驱动：SQL Server（`tedious`）只读查询 + 元数据，能力矩阵声明由角色接口推导（`ConnectionSummary.capabilities`）；单测覆盖只读守卫与映射，真实服务器集成测试留待提供 `DATAFORGE_TEST_MSSQL` 环境
+- [x] 能力矩阵 UI：按驱动禁用 Data 标签、导入/导出、Schema 与事务工具条；SQL Server 只保留查询、资源树元数据与数据库列表
+- [x] `docs/drivers.md` 更新为新驱动步骤：新增只读驱动约定、SQL Server 示例与 SSH 隧道章节
 
 ## 11. 阶段 H：运维视图
 

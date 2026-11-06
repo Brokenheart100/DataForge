@@ -246,6 +246,10 @@ const stateChip = (connection: ConnectionSummary): string => {
             SQL
           </button>
           <button class="df-btn px-2 py-1" :class="view === 'data' ? 'df-btn-primary' : 'df-btn-ghost'" type="button"
+            :disabled="store.capabilities?.dataEditing === false"
+            :title="store.capabilities?.dataEditing === false
+              ? 'This driver does not support the data editor yet.'
+              : 'Browse table data'"
             @click="view = 'data'">
             <Table2 :size="12" />
             Data
@@ -287,20 +291,22 @@ const stateChip = (connection: ConnectionSummary): string => {
               Explain
             </button>
 
-            <button v-if="!store.transactionOpen" class="df-btn df-btn-ghost" type="button"
-              :disabled="store.transactionBusy || !store.activeConnectionId" @click="store.beginTransaction()">
-              Begin transaction
-            </button>
-            <template v-else>
-              <span class="df-chip border-forge-purple bg-forge-purple text-[#14121a]">in transaction</span>
-              <button class="df-btn df-btn-primary" type="button" :disabled="store.transactionBusy"
-                @click="store.commitTransaction()">
-                Commit
+            <template v-if="store.capabilities?.transactions !== false">
+              <button v-if="!store.transactionOpen" class="df-btn df-btn-ghost" type="button"
+                :disabled="store.transactionBusy || !store.activeConnectionId" @click="store.beginTransaction()">
+                Begin transaction
               </button>
-              <button class="df-btn df-btn-danger" type="button" :disabled="store.transactionBusy"
-                @click="store.rollbackTransaction()">
-                Rollback
-              </button>
+              <template v-else>
+                <span class="df-chip border-forge-purple bg-forge-purple text-[#14121a]">in transaction</span>
+                <button class="df-btn df-btn-primary" type="button" :disabled="store.transactionBusy"
+                  @click="store.commitTransaction()">
+                  Commit
+                </button>
+                <button class="df-btn df-btn-danger" type="button" :disabled="store.transactionBusy"
+                  @click="store.rollbackTransaction()">
+                  Rollback
+                </button>
+              </template>
             </template>
 
             <button class="df-btn df-btn-ghost ml-auto" type="button" @click="store.clearResult()">Clear</button>

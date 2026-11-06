@@ -6,6 +6,14 @@ import type { ConnectionProfile } from '../../domain/connection'
 
 const STORAGE_KEY = 'dataforge.connections.v1'
 
+const tunnelSchema = z.object({
+  host: z.string().min(1),
+  port: z.number().int().min(1).max(65535),
+  user: z.string().min(1),
+  auth: z.enum(['password', 'private key']),
+  privateKeyPath: z.string().min(1).optional(),
+})
+
 const profileSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -17,6 +25,8 @@ const profileSchema = z.object({
   user: z.string().min(1),
   ssl: z.enum(['disable', 'require', 'verify-full']),
   readOnly: z.boolean(),
+  // Profiles written before protocol v7 have no tunnel.
+  tunnel: tunnelSchema.optional(),
   createdAt: z.number(),
 })
 

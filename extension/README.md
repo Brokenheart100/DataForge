@@ -7,6 +7,13 @@ adds a MySQL adapter behind the same driver ports:
 
 - **Connections** — store PostgreSQL connection profiles, test them, connect and
   disconnect from the DataForge sidebar or the workbench.
+- **SSH tunnel** — connect through a jump host with a password or private key;
+  forwarding is bound to a loopback port and the tunnel closes with the
+  connection. SSH secrets live in VS Code SecretStorage.
+- **SQL Server (read-only)** — test the connection, browse databases, schemas,
+  tables, views and columns, and run `SELECT`/`WITH` statements. Writes are
+  rejected before a socket is opened, and the UI hides editing actions for
+  drivers that do not support them.
 - **Schema browser** — lazily expand a connection into databases, then schemas,
   tables and views, then columns with types, primary keys, nullability and
   defaults. Extra databases open read-only; switching the connection's own
@@ -65,7 +72,7 @@ adds a MySQL adapter behind the same driver ports:
 ## Requirements
 
 - VS Code 1.115 or newer.
-- A PostgreSQL server reachable from the machine running VS Code (MySQL connections only need queries and metadata).
+- A PostgreSQL server reachable from the machine running VS Code (MySQL and SQL Server connections only need queries and metadata).
 
 ## Getting started
 
@@ -104,7 +111,7 @@ CSP nonce stays under its control; the webview bundle is built into
 - `extension/src/domain` — profiles, errors, driver ports. No `vscode`, no `pg`.
 - `extension/src/application` — connection, query, schema, data-editing, export,
   history, format and transaction-session services plus ports.
-- `extension/src/infrastructure` — PostgreSQL and MySQL drivers, SQL builder, CSV writer,
+- `extension/src/infrastructure` — PostgreSQL, MySQL and SQL Server drivers, SSH tunnel, SQL builder, CSV writer,
   SecretStorage, Memento stores.
 - `extension/src/presentation` — tree view, webview panel, message router,
   completion provider, diagnostics, logging.

@@ -124,7 +124,7 @@ function openSchema(): void {
         class="df-btn df-btn-ghost h-7 px-2 text-[11px]"
         type="button"
         title="Create or change the table structure"
-        :disabled="!store.connectionId || !store.schema"
+        :disabled="!store.connectionId || !store.schema || workbench.capabilities?.schemaChanges === false"
         @click="openSchema"
       >
         <Wrench class="h-3 w-3" aria-hidden="true" />

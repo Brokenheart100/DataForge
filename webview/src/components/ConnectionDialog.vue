@@ -28,6 +28,7 @@ interface KindPreset {
 const KIND_PRESETS: readonly KindPreset[] = [
   { value: 'postgresql', label: 'PostgreSQL', port: '5432', database: 'postgres', user: 'postgres' },
   { value: 'mysql', label: 'MySQL / MariaDB', port: '3306', database: 'mysql', user: 'root' },
+  { value: 'sqlserver', label: 'SQL Server (read-only)', port: '1433', database: 'master', user: 'sa' },
 ]
 
 interface FormState {
@@ -40,6 +41,14 @@ interface FormState {
   password: string
   ssl: SslMode
   readOnly: boolean
+  tunnel: boolean
+  sshHost: string
+  sshPort: string
+  sshUser: string
+  sshAuth: 'password' | 'private key'
+  sshKeyPath: string
+  sshPassword: string
+  sshPassphrase: string
 }
 
 const form = reactive<FormState>(blankForm())
@@ -62,7 +71,15 @@ function blankForm(kind: ConnectionKind = 'postgresql'): FormState {
     user: preset.user,
     password: '',
     ssl: kind === 'postgresql' ? 'require' : 'disable',
-    readOnly: false,
+    readOnly: kind === 'sqlserver',
+    tunnel: false,
+    sshHost: '',
+    sshPort: '22',
+    sshUser: '',
+    sshAuth: 'password',
+    sshKeyPath: '',
+    sshPassword: '',
+    sshPassphrase: '',
   }
 }
 
@@ -73,6 +90,7 @@ function applyKind(kind: ConnectionKind): void {
   form.port = preset.port
   form.database = preset.database
   form.user = preset.user
+  form.readOnly = kind === 'sqlserver'
 }
 
 watch(
@@ -95,6 +113,14 @@ watch(
           password: '',
           ssl: connection.ssl,
           readOnly: connection.readOnly,
+          tunnel: connection.tunnel !== undefined,
+          sshHost: connection.tunnel?.host ?? '',
+          sshPort: String(connection.tunnel?.port ?? 22),
+          sshUser: connection.tunnel?.user ?? '',
+          sshAuth: connection.tunnel?.auth ?? 'password',
+          sshKeyPath: connection.tunnel?.privateKeyPath ?? '',
+          sshPassword: '',
+          sshPassphrase: '',
         }
         : blankForm(),
     )
@@ -104,7 +130,7 @@ watch(
 
 function toDraft(): ConnectionDraft {
   const port = Number.parseInt(form.port, 10)
-  return {
+  const draft: ConnectionDraft = {
     kind: form.kind,
     name: form.name.trim() || `${form.database.trim()}@${form.host.trim()}`,
     host: form.host.trim(),
@@ -115,6 +141,22 @@ function toDraft(): ConnectionDraft {
     ssl: form.ssl,
     readOnly: form.readOnly,
   }
+  if (form.tunnel) {
+    const sshPort = Number.parseInt(form.sshPort, 10)
+    draft.tunnel = {
+      host: form.sshHost.trim(),
+      port: Number.isFinite(sshPort) ? sshPort : 22,
+      user: form.sshUser.trim(),
+      auth: form.sshAuth,
+      ...(form.sshAuth === 'private key' ? { privateKeyPath: form.sshKeyPath.trim() } : {}),
+    }
+    if (form.sshPassword) draft.sshPassword = form.sshPassword
+    if (form.sshPassphrase) draft.sshPassphrase = form.sshPassphrase
+  } else if (props.connection?.tunnel) {
+    // Explicit null removes an existing tunnel; updates treat undefined as “keep”.
+    draft.tunnel = null
+  }
+  return draft
 }
 
 function validate(): string | undefined {
@@ -123,6 +165,20 @@ function validate(): string | undefined {
   if (!draft.database) return 'Database name is required.'
   if (!draft.user) return 'User is required.'
   if (draft.kind !== 'sqlite' && (draft.port < 1 || draft.port > 65535)) return 'Port must be between 1 and 65535.'
+  if (form.tunnel) {
+    if (!form.sshHost.trim()) return 'SSH host is required.'
+    if (!form.sshUser.trim()) return 'SSH user is required.'
+    const sshPort = Number.parseInt(form.sshPort, 10)
+    if (!Number.isFinite(sshPort) || sshPort < 1 || sshPort > 65535) {
+      return 'SSH port must be between 1 and 65535.'
+    }
+    if (form.sshAuth === 'private key' && !form.sshKeyPath.trim()) {
+      return 'Choose the SSH private key file.'
+    }
+    if (form.sshAuth === 'password' && !form.sshPassword && !props.connection) {
+      return 'Enter the SSH password.'
+    }
+  }
   return undefined
 }
 
@@ -177,7 +233,7 @@ function close(): void {
 
 <template>
   <div v-if="open" class="fixed inset-0 z-50 grid place-items-center bg-black/50 p-6" @click.self="close">
-    <form class="df-panel w-full max-w-lg p-4" @submit.prevent="save">
+    <form class="df-panel max-h-[90vh] w-full max-w-lg overflow-y-auto p-4" @submit.prevent="save">
       <div class="mb-3 flex items-start justify-between gap-4">
         <div>
           <h2 class="text-sm font-black uppercase tracking-wide">
@@ -233,6 +289,47 @@ function close(): void {
           <input v-model="form.readOnly" type="checkbox" class="size-4 accent-forge-purple" />
           <span class="text-xs">Read-only: block writes from this connection</span>
         </label>
+        <label class="col-span-2 flex items-center gap-2 border-t-2 border-ink pt-3">
+          <input v-model="form.tunnel" type="checkbox" class="size-4 accent-forge-purple" />
+          <span class="text-xs font-bold">Connect through an SSH tunnel</span>
+        </label>
+        <template v-if="form.tunnel">
+          <label class="col-span-2 sm:col-span-1">
+            <span class="df-label">SSH host</span>
+            <input v-model="form.sshHost" class="df-input" autocomplete="off" spellcheck="false" />
+          </label>
+          <label class="col-span-2 sm:col-span-1">
+            <span class="df-label">SSH port</span>
+            <input v-model="form.sshPort" class="df-input" inputmode="numeric" />
+          </label>
+          <label class="col-span-2">
+            <span class="df-label">SSH user</span>
+            <input v-model="form.sshUser" class="df-input" autocomplete="off" spellcheck="false" />
+          </label>
+          <label class="col-span-2">
+            <span class="df-label">SSH authentication</span>
+            <select v-model="form.sshAuth" class="df-input">
+              <option value="password">password</option>
+              <option value="private key">private key</option>
+            </select>
+          </label>
+          <label v-if="form.sshAuth === 'password'" class="col-span-2">
+            <span class="df-label">SSH password</span>
+            <input v-model="form.sshPassword" class="df-input" type="password" autocomplete="new-password"
+              :placeholder="connection?.tunnel ? 'unchanged' : ''" />
+          </label>
+          <template v-else>
+            <label class="col-span-2">
+              <span class="df-label">Private key file</span>
+              <input v-model="form.sshKeyPath" class="df-input" placeholder="~/.ssh/id_ed25519" spellcheck="false" />
+            </label>
+            <label class="col-span-2">
+              <span class="df-label">Key passphrase (optional)</span>
+              <input v-model="form.sshPassphrase" class="df-input" type="password" autocomplete="new-password"
+                :placeholder="connection?.tunnel ? 'unchanged' : ''" />
+            </label>
+          </template>
+        </template>
       </div>
 
       <p v-if="message" class="mt-3 border-2 px-2 py-1 text-[11px]"

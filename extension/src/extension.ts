@@ -16,12 +16,15 @@ import { ObjectService } from './application/object-service'
 import { DdlService } from './application/ddl-service'
 import { buildDdlStatements } from './infrastructure/postgres/ddl-sql'
 import { SchemaService } from './application/schema-service'
-import type { ConnectionConfig } from './domain/connection'
+import type { ConnectionConfig, ConnectionCredentials, ConnectionProfile } from './domain/connection'
+import type { SshAuthentication } from './infrastructure/ssh/tunnel'
+import { openSshTunnel } from './infrastructure/ssh/tunnel'
 import type { ObjectTargetInput } from '@shared/protocol'
 import type { DatabaseDriver } from './domain/driver'
 import { DataForgeError } from './domain/errors'
 import { MySqlDriver } from './infrastructure/mysql/mysql-driver'
 import { PostgresDriver } from './infrastructure/postgres/postgres-driver'
+import { SqlServerDriver } from './infrastructure/sqlserver/sqlserver-driver'
 import { MementoConnectionStore } from './infrastructure/persistence/connection-store'
 import { MementoHistoryStore } from './infrastructure/persistence/history-store'
 import { VsCodeSecretStore } from './infrastructure/security/secret-store'
@@ -41,6 +44,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     secrets: new VsCodeSecretStore(context.secrets),
     logger,
     createDriver: (config) => createDriver(config, logger),
+    createTunnel: (profile, credentials) => createTunnelFor(profile, credentials),
   })
 
   await connections.initialize()
@@ -371,6 +375,9 @@ function createDriver(config: ConnectionConfig, logger: Logger): DatabaseDriver 
   const statementTimeoutMs = settings.get<number>('statementTimeoutMs', 30_000)
 
   if (config.profile.kind === 'mysql') return new MySqlDriver(config, { connectTimeoutMs, statementTimeoutMs })
+  if (config.profile.kind === 'sqlserver') {
+    return new SqlServerDriver(config, { connectTimeoutMs, statementTimeoutMs })
+  }
   if (config.profile.kind !== 'postgresql') {
     throw new DataForgeError('internal', `The ${config.profile.kind} driver is not implemented yet.`)
   }
@@ -379,6 +386,38 @@ function createDriver(config: ConnectionConfig, logger: Logger): DatabaseDriver 
     statementTimeoutMs,
     onBackgroundError: (message) => logger.warn(message),
   })
+}
+
+async function createTunnelFor(profile: ConnectionProfile, credentials: ConnectionCredentials) {
+  const tunnel = profile.tunnel
+  if (!tunnel) throw new DataForgeError('internal', 'That connection has no SSH tunnel configured.')
+  let auth: SshAuthentication
+  if (tunnel.auth === 'password') {
+    if (!credentials.sshPassword) {
+      throw new DataForgeError('invalid_request', `Enter the SSH password for "${tunnel.user}@${tunnel.host}" again.`)
+    }
+    auth = { method: 'password', password: credentials.sshPassword }
+  } else {
+    if (!tunnel.privateKeyPath) {
+      throw new DataForgeError('invalid_request', 'Choose a private key file for the SSH tunnel.')
+    }
+    auth = {
+      method: 'private key',
+      privateKeyPath: tunnel.privateKeyPath,
+      ...(credentials.sshPassphrase === undefined ? {} : { passphrase: credentials.sshPassphrase }),
+    }
+  }
+  const connectTimeoutMs = vscode.workspace.getConfiguration('dataforge').get<number>('connectTimeoutMs', 10_000)
+  const handle = await openSshTunnel({
+    sshHost: tunnel.host,
+    sshPort: tunnel.port,
+    user: tunnel.user,
+    auth,
+    targetHost: profile.host,
+    targetPort: profile.port,
+    connectTimeoutMs,
+  })
+  return { host: handle.host, port: handle.port, dispose: handle.close }
 }
 
 async function pickImportFile(format: 'csv' | 'json'): Promise<string | undefined> {

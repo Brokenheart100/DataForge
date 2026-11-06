@@ -1,4 +1,14 @@
-import type { ConnectionKind, ConnectionState, SslMode } from '@shared/protocol'
+import type { ConnectionKind, ConnectionState, SshAuthMethod, SslMode } from '@shared/protocol'
+
+/** SSH hop in front of the database. Contains no secrets. */
+export interface SshTunnelProfile {
+  readonly host: string
+  readonly port: number
+  readonly user: string
+  readonly auth: SshAuthMethod
+  /** Private-key path when `auth` is `private key`. */
+  readonly privateKeyPath?: string
+}
 
 /**
  * Persistent, secret-free description of a database connection.
@@ -18,12 +28,15 @@ export interface ConnectionProfile {
   readonly ssl: SslMode
   /** Marks the connection as read-only, blocking every write path in the UI. */
   readonly readOnly: boolean
+  readonly tunnel?: SshTunnelProfile
   readonly createdAt: number
 }
 
-/** Transient secret paired with a profile, never persisted in settings. */
+/** Transient secrets paired with a profile, never persisted in settings. */
 export interface ConnectionCredentials {
   readonly password: string
+  readonly sshPassword?: string
+  readonly sshPassphrase?: string
 }
 
 /** Everything infrastructure needs to open a pool. */
@@ -67,6 +80,7 @@ export interface ProfileDraft {
   user?: string
   ssl?: SslMode
   readOnly?: boolean
+  tunnel?: SshTunnelProfile | null
 }
 
 const SSL_MODES: readonly SslMode[] = ['disable', 'require', 'verify-full']
@@ -96,7 +110,21 @@ export function createProfile(id: string, draft: ProfileDraft, now: number): Con
     user,
     ssl: draft.ssl ?? 'require',
     readOnly: draft.readOnly ?? false,
+    ...(draft.tunnel ? { tunnel: normalizeTunnel(draft.tunnel) } : {}),
     createdAt: now,
+  }
+}
+
+/** Trims an SSH hop and drops key material fields that do not apply. */
+export function normalizeTunnel(tunnel: SshTunnelProfile): SshTunnelProfile {
+  const auth: SshAuthMethod = tunnel.auth === 'private key' ? 'private key' : 'password'
+  const privateKeyPath = tunnel.privateKeyPath?.trim()
+  return {
+    host: tunnel.host.trim(),
+    port: clampPort(tunnel.port, 22),
+    user: tunnel.user.trim(),
+    auth,
+    ...(auth === 'private key' && privateKeyPath ? { privateKeyPath } : {}),
   }
 }
 

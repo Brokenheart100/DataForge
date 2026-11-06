@@ -43,6 +43,14 @@ import { DataForgeError, toErrorDto } from '../domain/errors'
 
 const sslSchema = z.enum(['disable', 'require', 'verify-full'])
 
+const tunnelSchema = z.object({
+  host: z.string().trim().min(1).max(253),
+  port: z.number().int().min(1).max(65535),
+  user: z.string().trim().min(1).max(120),
+  auth: z.enum(['password', 'private key']),
+  privateKeyPath: z.string().trim().max(4096).optional(),
+})
+
 const draftSchema = z.object({
   // Optional: clients built before protocol v4 send no kind and get PostgreSQL.
   kind: z.enum(['postgresql', 'mysql', 'sqlite', 'sqlserver']).optional(),
@@ -54,6 +62,9 @@ const draftSchema = z.object({
   password: z.string().max(4096),
   ssl: sslSchema,
   readOnly: z.boolean(),
+  tunnel: tunnelSchema.nullable().optional(),
+  sshPassword: z.string().max(4096).optional(),
+  sshPassphrase: z.string().max(4096).optional(),
 })
 
 const idSchema = z.object({ id: z.string().min(1).max(128) })

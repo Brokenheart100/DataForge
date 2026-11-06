@@ -16,15 +16,17 @@
   ORM、查询 DSL 或通用 SQL 解析器。
 - 安全默认：密码进 SecretStorage，写操作参数化，标识符统一引用，危险操作二次确认。
 
-## 2. 当前状态（0.1.4）
+## 2. 当前状态（0.1.4 开发中）
 
-已交付：连接管理（PostgreSQL/MySQL）、资源树（连接 → Databases → 库 → Schemas →
-表/视图 → 列）、按库作用域浏览（副库只读）、库切换、SQL 执行与结果网格、取消、
-数据编辑（事务化提交 + `xmin` 乐观锁）、CSV 导出、补全、格式化、历史、EXPLAIN、
-显式事务会话、状态栏计时、CI/CD 与 Marketplace 发布。
+已交付：连接管理（PostgreSQL/MySQL/只读 SQL Server、SSH 隧道、能力矩阵）、资源树
+（连接 → Databases → 库 → Schemas → 表/视图 → 列）、按库作用域浏览（副库只读）、
+库切换、多控制台、SQL 执行与结果网格、取消、对象搜索/DDL/统计、数据编辑（事务化提交
++ `xmin` 乐观锁、服务端筛选与多列排序、粘贴、生成列只读、JSON 预览、跳页）、CSV 导出、
+CSV/JSON 导入、结构变更（预览 + 风险分级 + 输入确认 + schema diff API）、补全、格式化、
+历史、EXPLAIN、显式事务会话、状态栏计时、CI/CD 与 Marketplace 发布。
 
-关键差距：没有多控制台；对象浏览器只有树，没有搜索/DDL/统计；没有导入；
-没有结构编辑；只有两个驱动。
+关键差距：没有会话/锁面板与执行计划可视化（阶段 H）；schema diff 缺界面；
+MySQL 的数据编辑/导出/事务/结构变更未开启；SQL Server 只读；SQLite 未支持。
 
 ## 3. 目标架构
 
@@ -37,7 +39,7 @@
 │      │                                                                          │
 │ domain         profiles · scopes · driver ports · pending changes · ddl model   │
 │      │                                                                          │
-│ infrastructure postgres · mysql · (sqlite/sqlserver) · ssh tunnel · secret store│
+│ infrastructure postgres · mysql · sqlserver(只读) · ssh tunnel · secret store   │
 └───────────────┬─────────────────────────────────────────────────────────────────┘
                 │ typed protocol (Zod, requestId, events)
 ┌───────────────┴──────────────── Webview (Vue 3 + Pinia + AG Grid) ──────────────┐
@@ -57,17 +59,21 @@
 | `DdlService` | `application/ddl-service.ts` | 结构变更：计划校验、风险分级、确认、只读/事务保护、schema diff（已交付） |
 | `ImportService` | `application/import-service.ts` | CSV/JSON/SQL 流式导入：列映射、类型转换、错误行报告、批提交 |
 | `SessionMonitor` | `application/session-monitor.ts` | 会话/锁面板，终止后端（PG `pg_terminate_backend`，MySQL `KILL`） |
-| `Tunnel` | `infrastructure/ssh/tunnel.ts` | SSH 本地端口转发，供驱动连 `127.0.0.1:<port>` |
+| `Tunnel` | `infrastructure/ssh/tunnel.ts` | SSH 本地端口转发，供驱动连 `127.0.0.1:<port>`（已交付） |
 
 驱动端口保持小而稳：`DatabaseDriver`（查询/元数据）＋ 可选能力
 `DataEditingDriver`、`TableExportDriver`、`TransactionalDriver`、`DdlDriver`（新增，
-提供 `applyDdl`）。能力缺失时服务层抛可读错误，UI 隐藏入口。
+提供 `applyDdl`）。能力缺失时服务层抛可读错误，UI 隐藏入口。连接摘要携带
+`capabilities`（`query/dataEditing/exportCsv/transactions/schemaChanges/objectBrowser/databaseList`），
+由 `ConnectionService` 按角色接口是否存在推导，Webview 只据此显示或禁用入口。
 
 ### 3.2 模块清单（新增与改动）
 
 | 模块 | 状态 | 说明 |
 | --- | --- | --- |
 | `domain/driver.ts` | 扩展 | 增加 `DdlDriver`、`SessionDriver` 能力端口；`listDatabases` 已存在 |
+| `infrastructure/ssh/tunnel.ts` | 已交付 | `buildSshConfig` / `openSshTunnel`：`ssh2` 握手、回环转发、幂等关闭；密钥与口令只来自 SecretStorage |
+| `infrastructure/sqlserver/sqlserver-driver.ts` | 已交付 | 只读 SQL Server：`isReadOnlySql` 守卫、`tedious` 查询/取消/超时、元数据与能力声明 |
 | `domain/scope.ts` | 已交付 | scope 键与序列化，缓存键统一 `connectionId\u0000database` |
 | `application/connection-service.ts` | 已交付 | `requireScopedDriver` 作用域池、`listDatabases`、`switchDatabase`，断开时释放副库池 |
 | `application/console-service.ts` | 已交付 | 多控制台：`open/copy/close/list`，关闭时取消运行中查询并回滚该控制台事务 |
@@ -83,14 +89,14 @@
 | `presentation/console-panel.ts` | 新增 | 控制台标签与结果渲染的宿主侧协调 |
 | `webview/src/views/*` | 新增 | Console、Objects、Import、Sessions 等视图 |
 
-## 4. 协议 v6
+## 4. 协议 v7
 
 信封不变：`{kind:'request', id, type, payload}`，响应 `ok/data` 或 `error{code,message}`
 （错误可带 `conflictingKeys`）。新增请求分组：
 
 | 分组 | 核心请求 | 说明 |
 | --- | --- | --- |
-| datasource | `connection.*` | 现有 CRUD/test/connect/disconnect，增加 `tunnel.*` |
+| datasource | `connection.*` | 现有 CRUD/test/connect/disconnect；草稿与摘要增加可选 `tunnel`，摘要增加 `capabilities` |
 | scope | `database.list`（已交付）、`scope.describe` | 数据库列举与作用域元信息 |
 | console | `console.open/close/list`（已交付）、`query.execute`（带 `consoleId`） | 控制台与执行 |
 | object | `object.search`、`object.ddl`、`object.stats`、`object.openInEditor`（已交付） | 对象搜索、DDL、统计、在编辑器打开 |
@@ -100,7 +106,7 @@
 | data | `data.*`、`transaction.*`、`query.explain` | 现有能力，输入统一增加可选 `database`（已交付）；`data.page` 支持 `filters` 与多列 `orderBy` |
 
 所有输入中的 `database` 可选（缺省=连接主库），保证 0.1.x 客户端仍可工作；
-`PROTOCOL_VERSION` 已升到 6。
+`PROTOCOL_VERSION` 已升到 7（v7 = 驱动能力矩阵 + 可选 SSH 隧道）。
 
 作用域规则（D1.2 已落地）：资源树可按库嵌套展开，副库使用独立 pool 且**只读**；
 写请求（`query.execute` 中的 DML、`data.commit`）在副库上被服务层拒绝，并提示
@@ -115,6 +121,11 @@
 `reltuples`（行估算可能为负，此时返回 `null`）。结果按 `scope + 对象` 缓存 60 秒，
 缓存键以 scope key 开头，`invalidate(connectionId)` 可按连接清理。Webview 只拿到
 DDL 文本，不能自己拼 SQL 或读目录。
+
+SSH 隧道（G 已落地）：`connection-service` 在连接前调用 `TunnelFactory`，把 profile 的
+host/port 换成 `127.0.0.1:<随机端口>`；驱动与作用域池完全不知道 SSH 存在，断开时
+`disconnect` 释放驱动后再关闭隧道。`ConnectionSummary.capabilities` 在连接成功后返回，
+供 Webview 隐藏 Data/导入/导出/Schema/事务入口；SQL Server 只暴露查询、对象浏览与数据库列表。
 
 ## 5. 生命周期与并发
 

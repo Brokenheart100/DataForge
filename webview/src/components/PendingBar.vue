@@ -103,7 +103,7 @@ async function cancelCommit(): Promise<void> {
     </button>
     <button
       class="df-btn df-btn-ghost"
-      :disabled="!editor.isOpen || editor.exporting"
+      :disabled="!editor.isOpen || editor.exporting || ui.capabilities?.exportCsv === false"
       :title="`Export ${editor.qualifiedName} to a CSV file`"
       @click="exportCsv"
     >
@@ -119,7 +119,7 @@ async function cancelCommit(): Promise<void> {
     </button>
     <button
       class="df-btn df-btn-ghost"
-      :disabled="!editor.editable || editor.importing"
+      :disabled="!editor.editable || editor.importing || ui.capabilities?.dataEditing === false"
       title="Import CSV or JSON rows into this relation"
       @click="editor.openImport()"
     >

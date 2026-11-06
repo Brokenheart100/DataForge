@@ -154,6 +154,33 @@ toast「Imported 3 row(s) into public.orders.」。SQL 文件导入与“导出�
 
 已知缺口：schema diff 没有界面入口；约束编辑与重命名未做；MySQL 结构变更未开启。
 
+### 1.8 已完成：SSH 隧道与只读 SQL Server（0.1.4 开发中）
+
+目标：验证端口抽象能容纳第三种协议与网络中间层，同时不把 SSH 细节泄进驱动。
+
+实现要点：
+
+1. SSH 隧道：`ssh2` 连接跳板机（密码或私钥 + passphrase），本地 `127.0.0.1:0`
+   端口转发到数据库；连接服务把 profile 的 host/port 替换为隧道端点，驱动只看到
+   普通 host/port。同一连接的全部作用域池复用一条隧道，断开/删除/失败都会关闭。
+2. SecretStorage：密码、SSH 口令、私钥口令分三个键存放；切换认证方式会删除陈旧口令，
+   Webview 永远拿不到已保存的密钥。
+3. 连接对话框：SSH 开关与字段校验（host/port/user/auth/key path/passphrase）；
+   SQL Server 预设自动勾选只读并填 1433。
+4. SQL Server 驱动：仅实现 `DatabaseDriver`；`isReadOnlySql` 在打开 socket 前拒绝
+   非 SELECT/CTE；查询支持取消与请求超时；元数据来自 `sys.databases` 与
+   `INFORMATION_SCHEMA`。
+5. 能力矩阵：连接摘要新增 `capabilities`，由角色接口推导；Webview 禁用 Data 标签、
+   导入/导出、Schema 与事务工具条，SQL Server 只保留查询、资源树元数据与数据库列表。
+
+验收结果：隧道 5 个单测（配置、转发、握手失败、幂等关闭）与连接服务 3 个单测
+（端点替换、能力矩阵、失败清理）；SQL Server 3 个单测验证只读守卫；浏览器验证
+SQL Server 预设、SSH 字段切换与私钥/passphrase 表单。全量 200 个单元测试通过
+（无 PG/MySQL 容器时跳过 43 个集成用例）。
+
+已知缺口：没有真实 SQL Server 实例，集成测试尚未实际运行；私钥路径还是文本框；
+SSL 证书校验只有 `disable/require/verify-full` 三档，未做证书文件选择；SQLite 仍推迟。
+
 ## 2. 之后的切片（按依赖排序）
 
 | 阶段 | 能力 | 关键交付 | 依赖 |
@@ -161,7 +188,7 @@ toast「Imported 3 row(s) into public.orders.」。SQL 文件导入与“导出�
 | D4 | 数据编辑器强化 | 已完成（过滤、多列排序、粘贴、生成列、JSON 预览、跳页）；keyset 分页待补 | —— |
 | D5 | 导入导出 | CSV/JSON/SQL 导入（映射预览、错误行报告）、导出可选列/分隔符/编码 | D4（导入已落地，SQL 导入与导出选项待补） |
 | D6 | 结构与变更 | 新建/修改表对话框、索引/约束编辑、预览 SQL 后执行、简单 schema diff | D3（建表/加列/改列/索引/删表与预览已落地；diff 无 UI、约束编辑待补） |
-| D7 | 数据源广度 | SQLite、SQL Server、SSH 隧道、SSL 证书、驱动级能力矩阵 | D1.2 |
+| D7 | 数据源广度 | SQL Server（只读）、SSH 隧道与能力矩阵已落地；SQLite、SSL 证书管理待补 | D1.2 |
 | D8 | 运维体验 | 执行计划可视化、慢查询面板、会话/锁查看与终止、连接诊断 | D2 |
 
 ## 3. 原则

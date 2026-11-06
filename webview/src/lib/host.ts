@@ -148,6 +148,15 @@ class DemoTransport implements Transport {
         readOnly: draft.readOnly,
         state: 'connected',
         serverVersion: 'PostgreSQL 17.3 (demo)',
+        capabilities: {
+          query: true,
+          dataEditing: true,
+          exportCsv: true,
+          transactions: true,
+          schemaChanges: true,
+          objectBrowser: true,
+          databaseList: true,
+        },
       })),
       prefs: { maxRows: 500, statementTimeoutMs: 30_000, connectTimeoutMs: 10_000 },
     }

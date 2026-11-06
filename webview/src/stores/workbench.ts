@@ -74,6 +74,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   let consoleSequence = 0
 
   const activeConnection = computed(() => connections.value.find((item) => item.id === activeConnectionId.value))
+  /** What the active driver can do; undefined means “unknown, keep every entry point”. */
+  const capabilities = computed(() => activeConnection.value?.capabilities)
   const connectedCount = computed(() => connections.value.filter((item) => item.state === 'connected').length)
   const activeConsole = computed(() => consoles.value.find((item) => item.key === activeConsoleId.value))
 
@@ -542,6 +544,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     prefs,
     activeConnectionId,
     activeConnection,
+    capabilities,
     connectedCount,
     consoles,
     activeConsoleId,

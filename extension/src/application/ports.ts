@@ -1,6 +1,5 @@
 import type { ConnectionConfig, ConnectionCredentials, ConnectionProfile } from '../domain/connection'
 import type { DatabaseDriver } from '../domain/driver'
-
 /**
  * Ports owned by the application layer. Infrastructure implements them, so the
  * use cases never depend on VS Code, PostgreSQL, or the filesystem.
@@ -28,6 +27,23 @@ export interface ConnectionStore {
 
 /** Builds a driver for a fully resolved connection (profile + password). */
 export type DriverFactory = (config: ConnectionConfig) => DatabaseDriver
+
+/** Loopback endpoint of an open SSH tunnel. */
+export interface ConnectionTunnel {
+  readonly host: string
+  readonly port: number
+  dispose(): Promise<void>
+}
+
+/**
+ * Opens the SSH hop before the driver is created. The factory gets the real
+ * profile (so it knows the bastion) and the resolved secrets (password or key
+ * passphrase), and returns only the local endpoint the driver should dial.
+ */
+export type TunnelFactory = (
+  profile: ConnectionProfile,
+  credentials: ConnectionCredentials,
+) => Promise<ConnectionTunnel>
 
 export type Listener<T> = (value: T) => void
 

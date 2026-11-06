@@ -18,14 +18,43 @@
  * v6 adds structural changes: `ddl.preview` / `ddl.apply` carry a structured
  * plan (never raw SQL) that the host turns into statements, and `schema.diff`
  * compares two scopes.
+ *
+ * v7 adds driver capabilities to the connection summary (so the UI hides what a
+ * driver cannot do) and the optional SSH tunnel a profile connects through.
  */
-export const PROTOCOL_VERSION = 6
+export const PROTOCOL_VERSION = 7
 
 export type SslMode = 'disable' | 'require' | 'verify-full'
 export type ConnectionState = 'disconnected' | 'connected' | 'error'
 
 /** Database flavour a profile points at. Drivers are selected by this value. */
 export type ConnectionKind = 'postgresql' | 'mysql' | 'sqlite' | 'sqlserver'
+
+export type SshAuthMethod = 'password' | 'private key'
+
+/**
+ * SSH hop used before the database handshake. Secrets (`sshPassword`,
+ * `sshPassphrase`) travel only in drafts and live in SecretStorage, never here.
+ */
+export interface SshTunnelDto {
+  host: string
+  port: number
+  user: string
+  auth: SshAuthMethod
+  /** Absolute path to the private key when `auth` is `private key`. */
+  privateKeyPath?: string
+}
+
+/** What a connected driver offers; the webview hides everything else. */
+export interface DriverCapabilitiesDto {
+  query: boolean
+  dataEditing: boolean
+  exportCsv: boolean
+  transactions: boolean
+  schemaChanges: boolean
+  objectBrowser: boolean
+  databaseList: boolean
+}
 
 /** JSON-safe cell value. Dates arrive as ISO strings, bytea as `\x…`. */
 export type CellValue = string | number | boolean | null
@@ -47,6 +76,10 @@ export interface ConnectionSummary {
   ssl: SslMode
   readOnly: boolean
   state: ConnectionState
+  /** Absent while disconnected; describes what the live driver supports. */
+  capabilities?: DriverCapabilitiesDto
+  /** SSH hop the profile connects through, when configured. */
+  tunnel?: SshTunnelDto
   serverVersion?: string
   lastError?: string
 }
@@ -63,6 +96,12 @@ export interface ConnectionDraft {
   password: string
   ssl: SslMode
   readOnly: boolean
+  /** `null` turns a previously configured tunnel off; omitted keeps it. */
+  tunnel?: SshTunnelDto | null
+  /** Write-only SSH password; stored in SecretStorage next to the DB password. */
+  sshPassword?: string
+  /** Write-only passphrase for an encrypted private key. */
+  sshPassphrase?: string
 }
 
 export interface ConnectionTestTarget {

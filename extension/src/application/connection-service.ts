@@ -2,18 +2,28 @@ import { randomUUID } from 'node:crypto'
 
 import type { ConnectionDraft, ConnectionState, ConnectionSummary, ConnectionTestResult, ConnectionTestTarget } from '@shared/protocol'
 
+import type { DriverCapabilitiesDto } from '@shared/protocol'
 import { createProfile, sameProfileName } from '../domain/connection'
-import type { ConnectionConfig, ConnectionProfile } from '../domain/connection'
-import type { DatabaseDriver, DataEditingDriver } from '../domain/driver'
+import type { ConnectionConfig, ConnectionCredentials, ConnectionProfile } from '../domain/connection'
+import type {
+  DatabaseDriver,
+  DataEditingDriver,
+  DdlDriver,
+  ObjectCatalogDriver,
+  TableExportDriver,
+  TransactionalDriver,
+} from '../domain/driver'
 import { DataForgeError, wrapError } from '../domain/errors'
 import { scopeKey, scopeOf } from '../domain/scope'
 import { Emitter } from './ports'
-import type { ConnectionStore, DriverFactory, Logger, SecretStore } from './ports'
+import type { ConnectionStore, ConnectionTunnel, DriverFactory, Logger, SecretStore, TunnelFactory } from './ports'
 
 export interface ConnectionServiceDeps {
   readonly store: ConnectionStore
   readonly secrets: SecretStore
   readonly createDriver: DriverFactory
+  /** Optional: profiles with a tunnel cannot connect without it. */
+  readonly createTunnel?: TunnelFactory
   readonly logger: Logger
 }
 
@@ -49,6 +59,8 @@ export class ConnectionService {
   private readonly databases = new Map<string, Promise<string[]>>()
   /** Extra pools, one per browsed database other than the connection's own. */
   private readonly scopedDrivers = new Map<string, DatabaseDriver>()
+  /** Open SSH forwarders, one per connection, reused by every scoped pool. */
+  private readonly tunnels = new Map<string, ConnectionTunnel>()
   private readonly changed = new Emitter<readonly ConnectionSummary[]>()
   private disposed = false
 
@@ -85,9 +97,11 @@ export class ConnectionService {
 
     try {
       await this.persist()
-      if (draft.password) {
-        await this.deps.secrets.write(profile.id, { password: draft.password })
-      }
+      await this.deps.secrets.write(profile.id, {
+        password: draft.password,
+        sshPassword: draft.sshPassword,
+        sshPassphrase: draft.sshPassphrase,
+      })
     } catch (error) {
       this.profiles.delete(profile.id)
       this.runtime.delete(profile.id)
@@ -116,6 +130,7 @@ export class ConnectionService {
         user: patch.user ?? current.user,
         ssl: patch.ssl ?? current.ssl,
         readOnly: patch.readOnly ?? current.readOnly,
+        tunnel: patch.tunnel === undefined ? current.tunnel : patch.tunnel ?? undefined,
       },
       current.createdAt,
     )
@@ -123,7 +138,23 @@ export class ConnectionService {
     this.profiles.set(connectionId, updated)
     await this.persist()
 
-    if (patch.password) await this.deps.secrets.write(connectionId, { password: patch.password })
+    if (
+      patch.password ||
+      patch.sshPassword !== undefined ||
+      patch.sshPassphrase !== undefined ||
+      patch.tunnel !== undefined
+    ) {
+      const existing = await this.deps.secrets.read(connectionId)
+      // A profile that no longer has a tunnel (or switched to a key) must not
+      // keep an unused SSH password around in SecretStorage.
+      const keepSsh =
+        patch.tunnel === undefined || patch.tunnel?.auth !== 'private key' ? existing : undefined
+      await this.deps.secrets.write(connectionId, {
+        password: patch.password || existing?.password || '',
+        sshPassword: patch.sshPassword !== undefined ? patch.sshPassword : keepSsh?.sshPassword,
+        sshPassphrase: patch.sshPassphrase !== undefined ? patch.sshPassphrase : keepSsh?.sshPassphrase,
+      })
+    }
     // Connection parameters changed: the open pool is stale.
     await this.disconnect(connectionId).catch(() => undefined)
 
@@ -144,11 +175,22 @@ export class ConnectionService {
   }
 
   async test(target: ConnectionTestTarget): Promise<ConnectionTestResult> {
-    const config = target.connectionId
-      ? await this.configFor(this.profile(target.connectionId))
-      : await this.configFor(createProfile('probe', target.draft ?? {}, Date.now()), target.draft?.password ?? '')
+    const profile = target.connectionId
+      ? this.profile(target.connectionId)
+      : createProfile('probe', target.draft ?? {}, Date.now())
+    const credentials: ConnectionCredentials = target.connectionId
+      ? await this.credentialsFor(profile)
+      : {
+        password: target.draft?.password ?? '',
+        sshPassword: target.draft?.sshPassword,
+        sshPassphrase: target.draft?.sshPassphrase,
+      }
 
-    const driver = this.createDriver(config)
+    let tunnel = this.tunnels.get(profile.id)
+    const owned = !tunnel && profile.tunnel ? await this.openTunnel(profile, credentials) : undefined
+    if (owned) tunnel = owned
+    const driverProfile = tunnel ? { ...profile, host: tunnel.host, port: tunnel.port } : profile
+    const driver = this.createDriver({ profile: driverProfile, credentials })
     const started = Date.now()
     try {
       const info = await driver.testConnection()
@@ -157,6 +199,7 @@ export class ConnectionService {
       throw wrapError('connection_failed', 'Connection test failed', error)
     } finally {
       await driver.dispose().catch(() => undefined)
+      if (owned) await owned.dispose().catch(() => undefined)
     }
   }
 
@@ -164,14 +207,25 @@ export class ConnectionService {
     const profile = this.profile(connectionId)
     if (this.drivers.has(connectionId)) return this.toSummary(profile)
 
-    const driver = this.createDriver(await this.configFor(profile))
+    const credentials = await this.credentialsFor(profile)
+    let tunnel: ConnectionTunnel | undefined
+    let driver: DatabaseDriver | undefined
     try {
+      if (profile.tunnel && !this.tunnels.has(connectionId)) {
+        tunnel = await this.openTunnel(profile, credentials)
+        this.tunnels.set(connectionId, tunnel)
+      }
+      driver = this.createDriver({ profile: this.tunnelled(profile), credentials })
       const info = await driver.testConnection()
       this.drivers.set(connectionId, driver)
       this.runtime.set(connectionId, { state: 'connected', serverVersion: info.serverVersion })
       this.deps.logger.info(`Connected to "${profile.name}" — ${info.serverVersion}`)
     } catch (error) {
-      await driver.dispose().catch(() => undefined)
+      await driver?.dispose().catch(() => undefined)
+      if (tunnel) {
+        this.tunnels.delete(connectionId)
+        await tunnel.dispose().catch(() => undefined)
+      }
       const failure = wrapError('connection_failed', `Could not connect to "${profile.name}"`, error)
       this.runtime.set(connectionId, { state: 'error', lastError: failure.message })
       this.changed.fire(this.list())
@@ -185,11 +239,14 @@ export class ConnectionService {
   async disconnect(connectionId: string): Promise<ConnectionSummary> {
     const profile = this.profile(connectionId)
     const driver = this.drivers.get(connectionId)
+    const tunnel = this.tunnels.get(connectionId)
     this.drivers.delete(connectionId)
+    this.tunnels.delete(connectionId)
     this.databases.delete(connectionId)
     await this.releaseScopes(connectionId)
     this.runtime.set(connectionId, { state: 'disconnected' })
     if (driver) await driver.dispose().catch((error: unknown) => this.deps.logger.warn(`Dispose failed: ${String(error)}`))
+    if (tunnel) await tunnel.dispose().catch((error: unknown) => this.deps.logger.warn(`Tunnel close failed: ${String(error)}`))
     this.changed.fire(this.list())
     return this.toSummary(profile)
   }
@@ -271,9 +328,12 @@ export class ConnectionService {
     if (this.disposed) return
     this.disposed = true
     const drivers = [...this.drivers.values(), ...this.scopedDrivers.values()]
+    const tunnels = [...this.tunnels.values()]
     this.drivers.clear()
     this.scopedDrivers.clear()
+    this.tunnels.clear()
     await Promise.all(drivers.map((driver) => driver.dispose().catch(() => undefined)))
+    await Promise.all(tunnels.map((tunnel) => tunnel.dispose().catch(() => undefined)))
   }
 
   private profile(connectionId: string): ConnectionProfile {
@@ -300,8 +360,56 @@ export class ConnectionService {
   }
 
   private async configFor(profile: ConnectionProfile, fallbackPassword?: string): Promise<ConnectionConfig> {
-    const credentials = await this.deps.secrets.read(profile.id)
-    return { profile, credentials: credentials ?? { password: fallbackPassword ?? '' } }
+    const credentials = await this.credentialsFor(profile, fallbackPassword)
+    return { profile: this.tunnelled(profile), credentials }
+  }
+
+  private async credentialsFor(profile: ConnectionProfile, fallbackPassword = ''): Promise<ConnectionCredentials> {
+    return (await this.deps.secrets.read(profile.id)) ?? { password: fallbackPassword }
+  }
+
+  /** While a tunnel is open, the driver talks to its loopback listener. */
+  private tunnelled(profile: ConnectionProfile): ConnectionProfile {
+    const tunnel = this.tunnels.get(profile.id)
+    return tunnel ? { ...profile, host: tunnel.host, port: tunnel.port } : profile
+  }
+
+  private async openTunnel(
+    profile: ConnectionProfile,
+    credentials: ConnectionCredentials,
+  ): Promise<ConnectionTunnel> {
+    if (!profile.tunnel) throw new DataForgeError('internal', 'That connection has no SSH tunnel configured.')
+    if (!this.deps.createTunnel) {
+      throw new DataForgeError('internal', 'SSH tunnels are not available in this build.')
+    }
+    try {
+      return await this.deps.createTunnel(profile, credentials)
+    } catch (error) {
+      throw wrapError('connection_failed', `Could not open the SSH tunnel to "${profile.tunnel.host}"`, error)
+    }
+  }
+
+  /** Capability snapshot of the live driver, absent while disconnected. */
+  private capabilitiesFor(connectionId: string): DriverCapabilitiesDto | undefined {
+    const driver = this.drivers.get(connectionId)
+    if (!driver) return undefined
+    const optional = driver as Partial<DataEditingDriver> &
+      Partial<TableExportDriver> &
+      Partial<TransactionalDriver> &
+      Partial<DdlDriver> &
+      Partial<ObjectCatalogDriver>
+    return {
+      query: true,
+      dataEditing:
+        typeof optional.selectPage === 'function' &&
+        typeof optional.applyMutations === 'function' &&
+        typeof optional.countRows === 'function',
+      exportCsv: typeof optional.exportTable === 'function',
+      transactions: typeof optional.openSession === 'function',
+      schemaChanges: typeof optional.applyDdl === 'function',
+      objectBrowser: typeof optional.objectDdl === 'function',
+      databaseList: typeof driver.listDatabases === 'function',
+    }
   }
 
   private async persist(): Promise<void> {
@@ -315,6 +423,7 @@ export class ConnectionService {
 
   private toSummary(profile: ConnectionProfile): ConnectionSummary {
     const runtime = this.runtime.get(profile.id) ?? { state: 'disconnected' as const }
+    const capabilities = this.capabilitiesFor(profile.id)
     return {
       id: profile.id,
       name: profile.name,
@@ -326,6 +435,8 @@ export class ConnectionService {
       ssl: profile.ssl,
       readOnly: profile.readOnly,
       state: runtime.state,
+      ...(capabilities === undefined ? {} : { capabilities }),
+      ...(profile.tunnel === undefined ? {} : { tunnel: profile.tunnel }),
       ...(runtime.serverVersion === undefined ? {} : { serverVersion: runtime.serverVersion }),
       ...(runtime.lastError === undefined ? {} : { lastError: runtime.lastError }),
     }

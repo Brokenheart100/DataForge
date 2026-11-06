@@ -13,17 +13,19 @@ grid with server-side filters, multi-column sorting, paste-as-rows, transactiona
 commit, optimistic locking and CSV export, import CSV/JSON files through a
 mapping wizard into existing tables, preview and apply schema changes
 (create table, add or alter a column, index, drop) behind a typed confirmation,
-and complete
-SQL through VS Code's own language services. PostgreSQL gets the full feature
-set; MySQL currently covers connections, metadata and queries. The explorer nests
-`Databases → database → schemas → tables`: extra databases open read-only, and a
-connection can be pointed at another database in one click.
+connect through an SSH tunnel, and query a read-only SQL Server alongside
+PostgreSQL and MySQL. Drivers advertise a capability matrix, so unsupported
+actions are hidden instead of failing. SQL completion comes from VS Code's own
+language services. PostgreSQL gets the full feature set; MySQL covers
+connections, metadata and queries, and SQL Server is query-only. The explorer
+nests `Databases → database → schemas → tables`: extra databases open read-only,
+and a connection can be pointed at another database in one click.
 
 ```text
 extension/           VS Code extension (Node 22+, CommonJS bundle via esbuild)
   src/domain         profiles, errors, driver ports, pending-change model
   src/application    connection/query/schema/data-editor/export services + ports
-  src/infrastructure PostgreSQL + MySQL drivers, SQL builder, CSV writer, SecretStorage
+  src/infrastructure PostgreSQL, MySQL and SQL Server drivers, SSH tunnel, SQL builder, CSV writer, SecretStorage
   src/presentation   tree view, webview panel, message router, logging
   media              activity bar icon
 webview/             Vue 3 + Pinia + Tailwind + AG Grid workbench (browser target)

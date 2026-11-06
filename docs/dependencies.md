@@ -12,7 +12,8 @@
 | VS Code | `^1.115.0` | `@types/vscode` 固定同版本 |
 | PostgreSQL | 12+ | 18 已实测 |
 | MySQL | 8.0+（MariaDB 兼容） | 8.4 已实测 |
-| SSH（规划） | OpenSSH 兼容服务端 | 仅端口转发，不做 SFTP |
+| SQL Server | 2019+（只读） | 尚未实测，需 `DATAFORGE_TEST_MSSQL` 环境 |
+| SSH | OpenSSH 兼容服务端 | 仅端口转发，不做 SFTP |
 
 ## 2. 现有依赖
 
@@ -26,11 +27,13 @@
 | `zod` | ^4.6.7 | 协议与持久化校验 |
 | `sql-formatter` | ^15.9.0 | SQL 格式化（宿主执行，避免 Webview 引入解析器） |
 | `csv-parse` | ^6.2.1 | CSV 导入流式解析（`csv-parse/sync` 用于 256 KB 预览样本） |
+| `ssh2` | ^1.17.0 | SSH 隧道本地转发（纯 JS，可选原生模块缺失时自动降级） |
+| `tedious` | ^20.3.8 | SQL Server 只读驱动（纯 JS，TDS 协议） |
 
 ### extension（开发）
 
 `typescript ~6.0.0`、`esbuild ^0.28.2`、`@types/vscode`（与 `engines.vscode` 同版本）、
-`@types/pg`、`@types/node`、`vitest ^4.1.11`、`@vscode/vsce ^4.1.0`。
+`@types/pg`、`@types/ssh2 ^1.15.6`、`@types/node`、`vitest ^4.1.11`、`@vscode/vsce ^4.1.0`。
 
 ### webview
 
@@ -44,13 +47,14 @@
 `oxlint`、`eslint ^10`、`eslint-plugin-vue`/`oxlint`/`vitest`/`playwright`、
 `typescript`、`jiti`（eslint 配置 TS 入口）。
 
-## 3. 计划引入
+## 3. 已引入的阶段依赖
 
-| 包 | 目标版本 | 用于 | 选择理由 / 风险 |
+| 包 | 版本 | 用于 | 选择理由 / 风险 |
 | --- | --- | --- | --- |
-| `ssh2` | ^1.16 | SSH 隧道（G 阶段） | 纯 JS 可用；可选原生 `cpu-features` 构建失败不影响使用。替代方案：调用系统 `ssh` 子进程（不支持密钥管理、跨平台差） |
+| `ssh2` | ^1.17 | SSH 隧道（G 阶段） | 纯 JS 可用；可选原生 `cpu-features` 构建失败不影响使用。替代方案：调用系统 `ssh` 子进程（不支持密钥管理、跨平台差） |
 | `@types/ssh2` | ^1.15 | 同上 | DefinitelyTyped 维护 |
-| `csv-parse` | ^6 | 导入解析（E 阶段） | 流式、容错、可处理引号/换行；不引入完整 ETL |
+| `tedious` | ^20.3 | SQL Server 只读驱动（G 阶段） | 纯 JS TDS 实现，无需 ODBC/原生编译；只支持回调 API，驱动内部包一层 Promise |
+| `csv-parse` | ^6.2 | 导入解析（E 阶段） | 流式、容错、可处理引号/换行；不引入完整 ETL |
 
 新增依赖的唯一目的是**新能力**，且必须满足：纯 JS 可打包、无运行期二进制依赖、
 许可证 MIT/Apache-2.0、维护活跃。
