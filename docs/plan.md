@@ -16,6 +16,7 @@
 | 导出 | CSV 流式导出（`pg-cursor`，每批 1000 行），宿主选路径 |
 | 编辑器能力 | 补全（复用 schema 缓存）、格式化、历史 200 条、EXPLAIN、状态栏耗时 |
 | 事务 | 显式 `BEGIN/COMMIT/ROLLBACK`，关闭面板/断开连接自动回滚 |
+| 控制台 | 每个连接多个标签页，各自保留 SQL 与结果；关闭即取消运行中的查询并回滚该控制台的事务（0.1.4） |
 | 工程 | CI（双 Node + PG/MySQL service）、Release、Marketplace `dataforge.dataforge-ide` |
 
 ## 2. 版本节奏
@@ -71,14 +72,16 @@
 批次：`application/console-service.ts`（新）→ 协议 `console.*` 与 router →
 面板标签与 `webview` store → 测试。
 
+状态：✅ 实现完成（协议 `console.*`，待发布 0.1.4）。
+
 ### 5.1 Todo List
 
-- [ ] `ConsoleService`：新建/复制/关闭、绑定 scope、保存最近结果
-- [ ] 协议：`console.list/open/close`，`query.execute` 指向 console id
-- [ ] 面板：标签栏 + 每标签状态（运行中/有错误/事务中）
-- [ ] 关闭控制台：取消运行中查询、回滚其事务、释放结果
-- [ ] 重连/切库时控制台保持，状态标记为“需重连”
-- [ ] 单测：并发两个控制台互不取消；关闭回滚
+- [x] `ConsoleService`：`open/copy/close/list`、绑定连接与库、记录运行中的 request id
+- [x] 协议：`console.open/list/close`；`query.execute` 与事务请求携带 `consoleId`
+- [x] 面板：标签栏 + 每标签状态（运行中/事务中/有错误/连接已断开）
+- [x] 关闭控制台：先 `query.cancel` 取消运行中语句，再 `rollbackConsole` 回滚其事务
+- [x] 重连/切库时控制台保留，切回时按需 `console.open` 重新绑定，旧句柄异步关闭
+- [x] 单测：并发两个控制台互不取消；关闭只取消自己的请求并调用 `rollbackConsole`（4 个用例）
 
 ## 6. 阶段 C：对象浏览器
 

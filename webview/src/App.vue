@@ -4,6 +4,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import type { ConnectionSummary } from '@shared/protocol'
 
+import type { WorkbenchConsole } from '@/stores/workbench'
+
 import ConnectionDialog from '@/components/ConnectionDialog.vue'
 import DataGrid from '@/components/DataGrid.vue'
 import PendingBar from '@/components/PendingBar.vue'
@@ -50,6 +52,24 @@ function onGlobalKeydown(event: KeyboardEvent): void {
     event.preventDefault()
     void runQuery()
   }
+}
+
+function onConnectionChange(event: Event): void {
+  store.setActiveConnection((event.target as HTMLSelectElement).value)
+}
+
+async function closeConsole(key: string): Promise<void> {
+  await store.closeConsole(key)
+}
+
+function consoleHint(tab: WorkbenchConsole): string {
+  const connection = store.connections.find((item) => item.id === tab.connectionId)
+  const state = connection ? connection.state : 'no connection'
+  return `${tab.title} · ${state}`
+}
+
+function isStale(tab: WorkbenchConsole): boolean {
+  return tab.connectionId !== undefined && store.connections.find((item) => item.id === tab.connectionId)?.state !== 'connected'
 }
 
 function openNew(): void {
@@ -195,6 +215,29 @@ const stateChip = (connection: ConnectionSummary): string => {
       </aside>
 
       <main class="flex min-w-0 flex-1 flex-col bg-paper">
+        <div class="flex shrink-0 items-stretch gap-1 overflow-x-auto border-b-2 border-ink bg-surface px-2 pt-1.5">
+          <button v-for="tab in store.consoles" :key="tab.key" type="button"
+            class="flex shrink-0 items-center gap-1.5 border-2 border-ink px-2 py-1 text-[11px] font-bold"
+            :class="tab.key === store.activeConsoleId ? 'bg-forge-yellow text-[#14121a] shadow-[2px_2px_0_0_var(--df-ink)]' : 'bg-paper text-muted'"
+            :title="consoleHint(tab)" @click="store.setActiveConsole(tab.key)">
+            <span v-if="tab.running" class="size-2 animate-pulse rounded-full bg-forge-purple" />
+            <span v-else-if="tab.transactionOpen" class="size-2 rounded-full bg-forge-mint" />
+            <span v-else-if="tab.error" class="size-2 rounded-full bg-forge-red" />
+            <span v-else-if="isStale(tab)" class="size-2 rounded-full bg-forge-pink" />
+            <span class="max-w-40 truncate">{{ tab.title }}</span>
+            <span v-if="tab.transactionOpen"
+              class="border border-[#14121a] bg-forge-purple px-1 text-[9px] uppercase tracking-widest text-[#14121a]">tx</span>
+            <span class="ml-0.5 grid size-4 cursor-pointer place-items-center border border-ink/30 text-[11px] leading-none hover:bg-forge-red hover:text-[#14121a]"
+              role="button" tabindex="0" :aria-label="`Close ${tab.title}`" @click.stop="closeConsole(tab.key)"
+              @keydown.enter.stop="closeConsole(tab.key)">×</span>
+          </button>
+          <button class="df-btn df-btn-ghost my-1 shrink-0 px-2 py-0.5" type="button" title="New console"
+            @click="store.addConsole()">
+            <Plus :size="12" />
+            Console
+          </button>
+        </div>
+
         <div class="flex shrink-0 items-center gap-2 border-b-2 border-ink bg-surface px-2 py-1">
           <button class="df-btn px-2 py-1" :class="view === 'sql' ? 'df-btn-primary' : 'df-btn-ghost'" type="button"
             @click="view = 'sql'">
@@ -216,8 +259,8 @@ const stateChip = (connection: ConnectionSummary): string => {
 
         <template v-if="view === 'sql'">
           <div class="flex shrink-0 flex-wrap items-center gap-2 border-b-2 border-ink px-3 py-2">
-            <select v-model="store.activeConnectionId" class="df-input max-w-64"
-              :disabled="store.running || store.transactionOpen">
+            <select :value="store.activeConnectionId" class="df-input max-w-64"
+              :disabled="store.running || store.transactionOpen" @change="onConnectionChange">
               <option :value="undefined" disabled>Select a connection…</option>
               <option v-for="connection in store.connections" :key="connection.id" :value="connection.id">
                 {{ connection.name }} ({{ connection.state }})

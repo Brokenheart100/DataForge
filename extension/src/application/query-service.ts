@@ -71,25 +71,27 @@ export class QueryService {
     }
 
     const summary = this.connections.get(input.connectionId)
-    const driver = await this.connections.requireScopedDriver(input.connectionId, input.database)
-    const maxRows = clampMaxRows(input.maxRows, this.options.defaultMaxRows)
-
-    // Browsing another database of the same connection is read-only until the
-    // user switches the connection to it: write state lives with the pool.
-    const secondary = input.database !== undefined && input.database !== summary.database
-    if ((summary.readOnly || secondary) && !isReadOnlyStatement(input.sql)) {
-      throw new DataForgeError(
-        'invalid_request',
-        secondary
-          ? `Database "${input.database}" is opened read-only. Switch the connection to it to run writes.`
-          : `Connection "${summary.name}" is read-only. Only SELECT-style statements can run.`,
-      )
-    }
-
+    // Register before any await: a console may be closed while the pool is
+    // still being acquired, and close() can only cancel a known request id.
     const controller = new AbortController()
     this.running.set(requestId, controller)
     const startedAt = Date.now()
     try {
+      const driver = await this.connections.requireScopedDriver(input.connectionId, input.database)
+      const maxRows = clampMaxRows(input.maxRows, this.options.defaultMaxRows)
+
+      // Browsing another database of the same connection is read-only until the
+      // user switches the connection to it: write state lives with the pool.
+      const secondary = input.database !== undefined && input.database !== summary.database
+      if ((summary.readOnly || secondary) && !isReadOnlyStatement(input.sql)) {
+        throw new DataForgeError(
+          'invalid_request',
+          secondary
+            ? `Database "${input.database}" is opened read-only. Switch the connection to it to run writes.`
+            : `Connection "${summary.name}" is read-only. Only SELECT-style statements can run.`,
+        )
+      }
+
       const result = await driver.query({ sql: input.sql, maxRows, signal: controller.signal })
       this.report({
         connectionId: input.connectionId,

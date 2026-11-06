@@ -82,6 +82,8 @@ class VsCodeTransport implements Transport {
 class DemoTransport implements Transport {
   private listener: ((message: unknown) => void) | undefined
   private state: unknown
+  private consoleSequence = 0
+  private readonly consoles = new Map<string, { id: string; connectionId: string; database: string; title: string }>()
   private readonly connections: ConnectionDraft[] = [
     {
       name: 'analytics@localhost',
@@ -173,6 +175,30 @@ class DemoTransport implements Transport {
       case 'database.list':
         succeed(['analytics', 'reporting'])
         return
+      case 'console.open': {
+        const payload = request.payload as { connectionId: string; database?: string; title?: string }
+        this.consoleSequence += 1
+        const console = {
+          id: `demo-console-${this.consoleSequence}`,
+          connectionId: payload.connectionId,
+          database: payload.database ?? 'analytics',
+          title: payload.title ?? `Console ${this.consoleSequence}`,
+        }
+        this.consoles.set(console.id, console)
+        succeed(console)
+        return
+      }
+      case 'console.list': {
+        const payload = request.payload as { connectionId: string }
+        succeed([...this.consoles.values()].filter((item) => item.connectionId === payload.connectionId))
+        return
+      }
+      case 'console.close': {
+        const payload = request.payload as { consoleId: string }
+        this.consoles.delete(payload.consoleId)
+        succeed(null)
+        return
+      }
       case 'connection.test':
         succeed({ serverVersion: 'PostgreSQL 16.4 (demo)', database: 'analytics', user: 'postgres', latencyMs: 42 })
         return

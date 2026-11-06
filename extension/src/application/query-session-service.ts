@@ -16,24 +16,34 @@ export interface QuerySessionDeps {
   readonly defaultMaxRows?: number
 }
 
+interface SessionRecord {
+  readonly session: DriverSession
+  readonly connectionId: string
+}
+
 /**
- * One explicit transaction per connection, bound to a dedicated backend client.
+ * One explicit transaction per console (or per connection when no console id is
+ * given), bound to a dedicated backend client.
  *
- * A session is created on demand and released by `commit`, `rollback` or
+ * A session is released by `commit`, `rollback`, `rollbackConsole` or
  * `rollbackAll`; nothing here touches the pool used by ordinary statements.
  */
 export class QuerySessionService {
-  private readonly sessions = new Map<string, DriverSession>()
+  private readonly sessions = new Map<string, SessionRecord>()
 
   constructor(private readonly deps: QuerySessionDeps) {}
 
-  isOpen(connectionId: string): boolean {
-    return this.sessions.has(connectionId)
+  isOpen(connectionId: string, consoleId?: string): boolean {
+    return this.sessions.has(this.keyOf(connectionId, consoleId))
   }
 
-  async begin(connectionId: string, database?: string): Promise<void> {
-    if (this.sessions.has(connectionId)) {
-      throw new DataForgeError('invalid_request', 'A transaction is already open on this connection.')
+  async begin(connectionId: string, database?: string, consoleId?: string): Promise<void> {
+    const key = this.keyOf(connectionId, consoleId)
+    if (this.sessions.has(key)) {
+      throw new DataForgeError(
+        'invalid_request',
+        consoleId ? 'A transaction is already open in this console.' : 'A transaction is already open on this connection.',
+      )
     }
     if (database !== undefined) {
       const profile = this.deps.connections.get(connectionId)
@@ -49,18 +59,24 @@ export class QuerySessionService {
       throw new DataForgeError('internal', 'This connection does not support transactions yet.')
     }
     const session = await driver.openSession()
-    this.sessions.set(connectionId, session)
+    this.sessions.set(key, { session, connectionId })
     this.deps.logger.info(`Transaction opened on ${this.nameOf(connectionId)}`)
   }
 
-  async run(connectionId: string, sql: string, requestedRows?: number): Promise<DriverQueryResult> {
-    const session = this.require(connectionId)
+  async run(
+    connectionId: string,
+    sql: string,
+    requestedRows?: number,
+    consoleId?: string,
+  ): Promise<DriverQueryResult> {
+    const { session } = this.require(this.keyOf(connectionId, consoleId))
     return session.query({ sql, maxRows: clampMaxRows(requestedRows, this.deps.defaultMaxRows ?? 500) })
   }
 
-  async commit(connectionId: string): Promise<void> {
-    const session = this.require(connectionId)
-    this.sessions.delete(connectionId)
+  async commit(connectionId: string, consoleId?: string): Promise<void> {
+    const key = this.keyOf(connectionId, consoleId)
+    const { session } = this.require(key)
+    this.sessions.delete(key)
     try {
       await session.commit()
       this.deps.logger.info(`Transaction committed on ${this.nameOf(connectionId)}`)
@@ -70,15 +86,46 @@ export class QuerySessionService {
     }
   }
 
-  async rollback(connectionId: string): Promise<void> {
-    const session = this.require(connectionId)
-    this.sessions.delete(connectionId)
+  /**
+   * Without a console id this closes every session of the connection, so a
+   * disconnect still rolls back transactions left by several consoles.
+   */
+  async rollback(connectionId: string, consoleId?: string): Promise<void> {
+    const keys = consoleId
+      ? [this.keyOf(connectionId, consoleId)]
+      : [...this.sessions.entries()]
+          .filter(([, record]) => record.connectionId === connectionId)
+          .map(([key]) => key)
+    if (keys.length === 0 && !consoleId) {
+      throw new DataForgeError('not_found', 'No transaction is open on this connection.')
+    }
+    for (const key of keys) {
+      const record = this.sessions.get(key)
+      if (!record) {
+        if (consoleId) throw new DataForgeError('not_found', 'No transaction is open in this console.')
+        continue
+      }
+      this.sessions.delete(key)
+      try {
+        await record.session.rollback()
+        this.deps.logger.info(`Transaction rolled back on ${this.nameOf(connectionId)}`)
+      } catch (error) {
+        this.deps.logger.error(`Rollback failed on ${this.nameOf(connectionId)}`, error)
+        throw error
+      }
+    }
+  }
+
+  /** Rolls back the session owned by one console; used when that console closes. */
+  async rollbackConsole(consoleId: string): Promise<void> {
+    const record = this.sessions.get(consoleId)
+    if (!record) return
+    this.sessions.delete(consoleId)
     try {
-      await session.rollback()
-      this.deps.logger.info(`Transaction rolled back on ${this.nameOf(connectionId)}`)
+      await record.session.close()
+      this.deps.logger.info(`Rolled back the transaction of a closed console on ${this.nameOf(record.connectionId)}`)
     } catch (error) {
-      this.deps.logger.error(`Rollback failed on ${this.nameOf(connectionId)}`, error)
-      throw error
+      this.deps.logger.error(`Could not roll back the transaction of a closed console`, error)
     }
   }
 
@@ -86,20 +133,27 @@ export class QuerySessionService {
   async rollbackAll(): Promise<void> {
     const entries = [...this.sessions.entries()]
     this.sessions.clear()
-    for (const [connectionId, session] of entries) {
+    for (const [, record] of entries) {
       try {
-        await session.close()
-        this.deps.logger.info(`Rolled back the leftover transaction on ${this.nameOf(connectionId)}`)
+        await record.session.close()
+        this.deps.logger.info(`Rolled back the leftover transaction on ${this.nameOf(record.connectionId)}`)
       } catch (error) {
-        this.deps.logger.error(`Could not roll back the leftover transaction on ${this.nameOf(connectionId)}`, error)
+        this.deps.logger.error(
+          `Could not roll back the leftover transaction on ${this.nameOf(record.connectionId)}`,
+          error,
+        )
       }
     }
   }
 
-  private require(connectionId: string): DriverSession {
-    const session = this.sessions.get(connectionId)
-    if (!session) throw new DataForgeError('not_found', 'No transaction is open on this connection.')
-    return session
+  private keyOf(connectionId: string, consoleId?: string): string {
+    return consoleId ?? connectionId
+  }
+
+  private require(key: string): SessionRecord {
+    const record = this.sessions.get(key)
+    if (!record) throw new DataForgeError('not_found', 'No transaction is open on this connection.')
+    return record
   }
 
   private nameOf(connectionId: string): string {

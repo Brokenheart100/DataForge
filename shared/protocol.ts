@@ -92,8 +92,18 @@ export interface QueryInput {
   connectionId: string
   /** Database to run in; omitted means the connection's own database. */
   database?: string
+  /** Console that issued the statement, so closing it can cancel the query. */
+  consoleId?: string
   sql: string
   maxRows: number
+}
+
+export interface ConsoleDto {
+  id: string
+  connectionId: string
+  /** Database the console was opened against. */
+  database: string
+  title: string
 }
 
 export interface DataSortDto {
@@ -232,12 +242,15 @@ export interface RequestCatalogue {
   'connection.connect': { input: { id: string }; output: ConnectionSummary }
   'connection.disconnect': { input: { id: string }; output: ConnectionSummary }
   'database.list': { input: { connectionId: string }; output: string[] }
+  'console.open': { input: { connectionId: string; database?: string; title?: string }; output: ConsoleDto }
+  'console.list': { input: { connectionId: string }; output: ConsoleDto[] }
+  'console.close': { input: { consoleId: string }; output: null }
   'query.execute': { input: QueryInput; output: QueryResultDto }
   'query.cancel': { input: { targetRequestId: string }; output: null }
   'query.explain': { input: ExplainInput; output: ExplainResultDto }
-  'transaction.begin': { input: { connectionId: string; database?: string }; output: SessionStateDto }
-  'transaction.commit': { input: { connectionId: string; database?: string }; output: SessionStateDto }
-  'transaction.rollback': { input: { connectionId: string; database?: string }; output: SessionStateDto }
+  'transaction.begin': { input: { connectionId: string; database?: string; consoleId?: string }; output: SessionStateDto }
+  'transaction.commit': { input: { connectionId: string; consoleId?: string }; output: SessionStateDto }
+  'transaction.rollback': { input: { connectionId: string; consoleId?: string }; output: SessionStateDto }
   'transaction.run': { input: QueryInput; output: QueryResultDto }
   'data.page': { input: DataPageInput; output: DataPageDto }
   'data.commit': { input: DataCommitInput; output: DataCommitResult }
@@ -260,6 +273,9 @@ export const REQUEST_TYPES = [
   'connection.connect',
   'connection.disconnect',
   'database.list',
+  'console.open',
+  'console.list',
+  'console.close',
   'query.execute',
   'query.cancel',
   'query.explain',

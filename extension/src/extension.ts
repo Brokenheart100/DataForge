@@ -10,6 +10,7 @@ import { HistoryService } from './application/history-service'
 import type { Logger } from './application/ports'
 import { QueryService } from './application/query-service'
 import { QuerySessionService } from './application/query-session-service'
+import { ConsoleService } from './application/console-service'
 import { SchemaService } from './application/schema-service'
 import type { ConnectionConfig } from './domain/connection'
 import type { DatabaseDriver } from './domain/driver'
@@ -64,11 +65,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logger,
     defaultMaxRows: vscode.workspace.getConfiguration('dataforge').get<number>('maxRows', 500),
   })
+  const consoles = new ConsoleService({ connections, queries, sessions, logger })
   const dataEditor = new DataEditorService({ connections, schemas, logger })
   const exporter = new ExportService({ connections, schemas, logger })
   const router = new MessageRouter({
     connections,
     queries,
+    consoles,
     dataEditor,
     exporter,
     pickExportPath: (suggestedName) => pickExportPath(suggestedName),

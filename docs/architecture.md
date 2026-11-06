@@ -70,7 +70,7 @@
 | `domain/driver.ts` | 扩展 | 增加 `DdlDriver`、`SessionDriver` 能力端口；`listDatabases` 已存在 |
 | `domain/scope.ts` | 已交付 | scope 键与序列化，缓存键统一 `connectionId\u0000database` |
 | `application/connection-service.ts` | 已交付 | `requireScopedDriver` 作用域池、`listDatabases`、`switchDatabase`，断开时释放副库池 |
-| `application/console-service.ts` | 新增 | 多控制台，按控制台保存 `sql`/结果/作用域/事务归属 |
+| `application/console-service.ts` | 已交付 | 多控制台：`open/copy/close/list`，关闭时取消运行中查询并回滚该控制台事务 |
 | `application/object-service.ts` | 新增 | 搜索、DDL、统计；结果按 scope 缓存并有 TTL |
 | `application/ddl-planner.ts` | 新增 | 建表/改列/索引的结构化模型 → SQL，附风险标记 |
 | `application/import-service.ts` | 新增 | 流式解析 + 分批提交 + 错误行收集（最多 100 行） |
@@ -91,7 +91,7 @@
 | --- | --- | --- |
 | datasource | `connection.*` | 现有 CRUD/test/connect/disconnect，增加 `tunnel.*` |
 | scope | `database.list`（已交付）、`scope.describe` | 数据库列举与作用域元信息 |
-| console | `console.open/close/list`、`query.execute`（带 scope） | 控制台与执行 |
+| console | `console.open/close/list`（已交付）、`query.execute`（带 `consoleId`） | 控制台与执行 |
 | object | `object.search`、`object.ddl`、`object.stats` | 对象搜索、DDL、统计 |
 | ddl | `ddl.preview`、`ddl.apply` | 结构变更预览与执行 |
 | import | `import.preview`、`import.start`、`import.cancel` | 导入向导与后台任务 |
@@ -104,6 +104,10 @@
 作用域规则（D1.2 已落地）：资源树可按库嵌套展开，副库使用独立 pool 且**只读**；
 写请求（`query.execute` 中的 DML、`data.commit`）在副库上被服务层拒绝，并提示
 “切换连接后编辑”；事务始终绑定主库，`transaction.run` 不会带 `database`。
+
+控制台（D2 已落地）：一个连接可开多个控制台，各自持有 SQL/结果/错误与事务状态；
+会话键为 `consoleId ?? connectionId`，关闭控制台先取消其 `requestId` 再回滚其事务，
+断连时按连接回滚全部控制台，标签保留并标记“需重连”。
 
 ## 5. 生命周期与并发
 

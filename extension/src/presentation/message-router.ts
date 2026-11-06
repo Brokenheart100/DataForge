@@ -21,6 +21,7 @@ import { REQUEST_TYPES } from '@shared/protocol'
 
 import type { Logger } from '../application/ports'
 import type { ConnectionService } from '../application/connection-service'
+import type { ConsoleService } from '../application/console-service'
 import type { CommitResult, DataPage, DataEditorService } from '../application/data-editor-service'
 import type { ExportService } from '../application/export-service'
 import type { QueryService } from '../application/query-service'
@@ -100,9 +101,17 @@ const payloadSchemas: Readonly<Record<RequestType, z.ZodType>> = {
   'connection.connect': idSchema,
   'connection.disconnect': idSchema,
   'database.list': z.object({ connectionId: z.string().min(1).max(128) }),
+  'console.open': z.object({
+    connectionId: z.string().min(1).max(128),
+    database: z.string().min(1).max(63).optional(),
+    title: z.string().min(1).max(120).optional(),
+  }),
+  'console.list': z.object({ connectionId: z.string().min(1).max(128) }),
+  'console.close': z.object({ consoleId: z.string().min(1).max(128) }),
   'query.execute': z.object({
     connectionId: z.string().min(1).max(128),
     database: z.string().min(1).max(63).optional(),
+    consoleId: z.string().min(1).max(128).optional(),
     sql: z.string().min(1).max(1_000_000),
     maxRows: z.number().int().min(1).max(10_000),
   }),
@@ -115,18 +124,20 @@ const payloadSchemas: Readonly<Record<RequestType, z.ZodType>> = {
   'transaction.begin': z.object({
     connectionId: z.string().min(1).max(128),
     database: z.string().min(1).max(63).optional(),
+    consoleId: z.string().min(1).max(128).optional(),
   }),
   'transaction.commit': z.object({
     connectionId: z.string().min(1).max(128),
-    database: z.string().min(1).max(63).optional(),
+    consoleId: z.string().min(1).max(128).optional(),
   }),
   'transaction.rollback': z.object({
     connectionId: z.string().min(1).max(128),
-    database: z.string().min(1).max(63).optional(),
+    consoleId: z.string().min(1).max(128).optional(),
   }),
   'transaction.run': z.object({
     connectionId: z.string().min(1).max(128),
     database: z.string().min(1).max(63).optional(),
+    consoleId: z.string().min(1).max(128).optional(),
     sql: z.string().min(1).max(1_000_000),
     maxRows: z.number().int().min(1).max(10_000),
   }),
@@ -159,6 +170,8 @@ export interface MessageRouterDeps {
   readonly logger: Logger
   /** Optional so router tests can run without a transaction service. */
   readonly sessions?: QuerySessionService
+  /** Optional so router tests can run without a console registry. */
+  readonly consoles?: ConsoleService
 }
 
 function formatIssues(error: z.ZodError): string {
@@ -171,6 +184,11 @@ function formatIssues(error: z.ZodError): string {
 function sessionService(deps: MessageRouterDeps): QuerySessionService {
   if (!deps.sessions) throw new DataForgeError('internal', 'Transactions are not available in this build.')
   return deps.sessions
+}
+
+function consoleService(deps: MessageRouterDeps): ConsoleService {
+  if (!deps.consoles) throw new DataForgeError('internal', 'Consoles are not available in this build.')
+  return deps.consoles
 }
 
 function okResponse<T extends RequestType>(id: string, type: T, data: RequestOutput<T>): WebviewResponse {
@@ -268,31 +286,56 @@ export class MessageRouter {
         return connections.disconnect(as<{ id: string }>(payload).id)
       case 'database.list':
         return connections.listDatabases(as<{ connectionId: string }>(payload).connectionId)
-      case 'query.execute':
-        return queries.execute(requestId, as<QueryInput>(payload))
+      case 'console.open': {
+        const input = as<{ connectionId: string; database?: string; title?: string }>(payload)
+        return consoleService(this.deps).open(input.connectionId, input.database, input.title)
+      }
+      case 'console.list':
+        return consoleService(this.deps).list(as<{ connectionId: string }>(payload).connectionId)
+      case 'console.close':
+        await consoleService(this.deps).close(as<{ consoleId: string }>(payload).consoleId)
+        return null
+      case 'query.execute': {
+        const input = as<QueryInput>(payload)
+        this.deps.consoles?.registerRun(input.consoleId, requestId)
+        try {
+          return await queries.execute(requestId, input)
+        } finally {
+          this.deps.consoles?.clearRun(requestId)
+        }
+      }
       case 'query.cancel':
         queries.cancel(as<{ targetRequestId: string }>(payload).targetRequestId)
         return null
       case 'query.explain':
         return queries.explain(requestId, as<ExplainInput>(payload))
       case 'transaction.begin': {
-        const { connectionId, database } = as<{ connectionId: string; database?: string }>(payload)
-        await sessionService(this.deps).begin(connectionId, database)
+        const { connectionId, database, consoleId } = as<{
+          connectionId: string
+          database?: string
+          consoleId?: string
+        }>(payload)
+        await sessionService(this.deps).begin(connectionId, database, consoleId)
         return { connectionId, active: true } satisfies SessionStateDto
       }
       case 'transaction.commit': {
-        const { connectionId } = as<{ connectionId: string }>(payload)
-        await sessionService(this.deps).commit(connectionId)
+        const { connectionId, consoleId } = as<{ connectionId: string; consoleId?: string }>(payload)
+        await sessionService(this.deps).commit(connectionId, consoleId)
         return { connectionId, active: false } satisfies SessionStateDto
       }
       case 'transaction.rollback': {
-        const { connectionId } = as<{ connectionId: string }>(payload)
-        await sessionService(this.deps).rollback(connectionId)
+        const { connectionId, consoleId } = as<{ connectionId: string; consoleId?: string }>(payload)
+        await sessionService(this.deps).rollback(connectionId, consoleId)
         return { connectionId, active: false } satisfies SessionStateDto
       }
       case 'transaction.run': {
         const input = as<QueryInput>(payload)
-        const result = await sessionService(this.deps).run(input.connectionId, input.sql, input.maxRows)
+        const result = await sessionService(this.deps).run(
+          input.connectionId,
+          input.sql,
+          input.maxRows,
+          input.consoleId,
+        )
         return toQueryResultDto(result)
       }
       case 'data.page':

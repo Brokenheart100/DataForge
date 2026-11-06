@@ -11,6 +11,8 @@ adds a MySQL adapter behind the same driver ports:
   tables and views, then columns with types, primary keys, nullability and
   defaults. Extra databases open read-only; switching the connection's own
   database rebuilds its pool.
+- **Consoles** — several tabs per connection, each keeping its own SQL, result and
+  transaction; closing a console cancels its statement and rolls back its transaction.
 - **SQL workbench** — run a statement, see the command tag, row count, duration
   and notices in a dense result grid. Results are capped (default 500 rows) so a
   stray `select *` cannot flood the extension host.

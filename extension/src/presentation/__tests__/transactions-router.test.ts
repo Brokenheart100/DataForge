@@ -44,14 +44,14 @@ describe('MessageRouter transactions', () => {
       ok: true,
       data: { connectionId: 'c1', active: true },
     })
-    expect(sessions.begin).toHaveBeenCalledWith('c1', undefined)
+    expect(sessions.begin).toHaveBeenCalledWith('c1', undefined, undefined)
   })
 
   it('commits and reports the session closed', async () => {
     const { router, sessions } = setup()
     const response = await router.handle({ kind: 'request', id: 'r2', type: 'transaction.commit', payload: { connectionId: 'c1' } })
     expect(response).toMatchObject({ ok: true, data: { connectionId: 'c1', active: false } })
-    expect(sessions.commit).toHaveBeenCalledWith('c1')
+    expect(sessions.commit).toHaveBeenCalledWith('c1', undefined)
   })
 
   it('maps session rows to the query DTO', async () => {
@@ -66,7 +66,7 @@ describe('MessageRouter transactions', () => {
       ok: true,
       data: { columns: [{ name: 'n', dataType: 'int4' }], rows: [[1]], rowCount: 1, command: 'SELECT' },
     })
-    expect(sessions.run).toHaveBeenCalledWith('c1', 'select 1', 100)
+    expect(sessions.run).toHaveBeenCalledWith('c1', 'select 1', 100, undefined)
   })
 
   it('rejects a malformed payload', async () => {
