@@ -6,6 +6,7 @@ import { createProfile, sameProfileName } from '../domain/connection'
 import type { ConnectionConfig, ConnectionProfile } from '../domain/connection'
 import type { DatabaseDriver, DataEditingDriver } from '../domain/driver'
 import { DataForgeError, wrapError } from '../domain/errors'
+import { scopeKey, scopeOf } from '../domain/scope'
 import { Emitter } from './ports'
 import type { ConnectionStore, DriverFactory, Logger, SecretStore } from './ports'
 
@@ -46,6 +47,8 @@ export class ConnectionService {
   private readonly drivers = new Map<string, DatabaseDriver>()
   private readonly runtime = new Map<string, RuntimeState>()
   private readonly databases = new Map<string, Promise<string[]>>()
+  /** Extra pools, one per browsed database other than the connection's own. */
+  private readonly scopedDrivers = new Map<string, DatabaseDriver>()
   private readonly changed = new Emitter<readonly ConnectionSummary[]>()
   private disposed = false
 
@@ -184,6 +187,7 @@ export class ConnectionService {
     const driver = this.drivers.get(connectionId)
     this.drivers.delete(connectionId)
     this.databases.delete(connectionId)
+    await this.releaseScopes(connectionId)
     this.runtime.set(connectionId, { state: 'disconnected' })
     if (driver) await driver.dispose().catch((error: unknown) => this.deps.logger.warn(`Dispose failed: ${String(error)}`))
     this.changed.fire(this.list())
@@ -210,6 +214,24 @@ export class ConnectionService {
 
   isConnected(connectionId: string): boolean {
     return this.drivers.has(connectionId)
+  }
+
+  /**
+   * Driver for an explicit `(connection, database)` scope. The connection's own
+   * database reuses the primary pool; any other database gets its own cached,
+   * read-only pool (PostgreSQL cannot query across databases).
+   */
+  async requireScopedDriver(connectionId: string, database?: string): Promise<DatabaseDriver> {
+    const profile = this.profile(connectionId)
+    const target = database?.trim() || profile.database
+    if (target === profile.database) return this.requireDriver(connectionId)
+    const key = scopeKey(scopeOf(connectionId, target))
+    const existing = this.scopedDrivers.get(key)
+    if (existing) return existing
+    const driver = this.createDriver(await this.configFor({ ...profile, database: target }))
+    this.scopedDrivers.set(key, driver)
+    this.deps.logger.info(`Opened scope "${target}" on "${profile.name}"`)
+    return driver
   }
 
   /**
@@ -248,8 +270,9 @@ export class ConnectionService {
   async dispose(): Promise<void> {
     if (this.disposed) return
     this.disposed = true
-    const drivers = [...this.drivers.values()]
+    const drivers = [...this.drivers.values(), ...this.scopedDrivers.values()]
     this.drivers.clear()
+    this.scopedDrivers.clear()
     await Promise.all(drivers.map((driver) => driver.dispose().catch(() => undefined)))
   }
 
@@ -261,6 +284,19 @@ export class ConnectionService {
 
   private createDriver(config: ConnectionConfig): DatabaseDriver {
     return this.deps.createDriver(config)
+  }
+
+  /** Disposes every extra pool opened for a connection (all browsed databases). */
+  private async releaseScopes(connectionId: string): Promise<void> {
+    const prefix = `${connectionId}\u0000`
+    const keys = [...this.scopedDrivers.keys()].filter((key) => key.startsWith(prefix))
+    const drivers = keys
+      .map((key) => this.scopedDrivers.get(key))
+      .filter((driver): driver is DatabaseDriver => driver !== undefined)
+    for (const key of keys) this.scopedDrivers.delete(key)
+    await Promise.all(
+      drivers.map((driver) => driver.dispose().catch((error: unknown) => this.deps.logger.warn(`Scope dispose failed: ${String(error)}`))),
+    )
   }
 
   private async configFor(profile: ConnectionProfile, fallbackPassword?: string): Promise<ConnectionConfig> {

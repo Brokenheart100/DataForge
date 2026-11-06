@@ -16,14 +16,15 @@
   ORM、查询 DSL 或通用 SQL 解析器。
 - 安全默认：密码进 SecretStorage，写操作参数化，标识符统一引用，危险操作二次确认。
 
-## 2. 当前状态（0.1.3）
+## 2. 当前状态（0.1.4）
 
-已交付：连接管理（PostgreSQL/MySQL）、资源树（连接 → Databases/Schemas → 表/视图 →
-列）、SQL 执行与结果网格、取消、数据编辑（事务化提交 + `xmin` 乐观锁）、CSV 导出、
-补全、格式化、历史、EXPLAIN、显式事务会话、状态栏计时、CI/CD 与 Marketplace 发布。
+已交付：连接管理（PostgreSQL/MySQL）、资源树（连接 → Databases → 库 → Schemas →
+表/视图 → 列）、按库作用域浏览（副库只读）、库切换、SQL 执行与结果网格、取消、
+数据编辑（事务化提交 + `xmin` 乐观锁）、CSV 导出、补全、格式化、历史、EXPLAIN、
+显式事务会话、状态栏计时、CI/CD 与 Marketplace 发布。
 
-关键差距：连接只绑定一个数据库（0.1.3 提供“切换”而非嵌套展开）；没有多控制台；
-对象浏览器只有树，没有搜索/DDL/统计；没有导入；没有结构编辑；只有两个驱动。
+关键差距：没有多控制台；对象浏览器只有树，没有搜索/DDL/统计；没有导入；
+没有结构编辑；只有两个驱动。
 
 ## 3. 目标架构
 
@@ -48,9 +49,9 @@
 
 | 抽象 | 位置 | 责任 |
 | --- | --- | --- |
-| `DataSourceScope` | `domain/scope.ts` | `{connectionId, database}`；所有元数据与查询的作用域键 |
+| `DataSourceScope` | `domain/scope.ts` | `{connectionId, database}`；所有元数据与查询的作用域键（已交付） |
 | `DriverRegistry` | `application/driver-registry.ts` | 按 `ConnectionKind` 创建驱动，能力矩阵查询 |
-| `ScopePools` | `application/connection-service.ts` | 每作用域一个 pool，主库池用于控制台/事务，副库池只读浏览，统一释放 |
+| `ScopePools` | `application/connection-service.ts` | 每作用域一个 pool，主库池用于控制台/事务，副库池只读浏览，统一释放（已交付） |
 | `ConsoleService` | `application/console-service.ts` | 控制台生命周期：新建/复制/关闭、绑定作用域、执行与取消、结果保留 |
 | `ObjectService` | `application/object-service.ts` | 对象搜索、DDL 读取、依赖与统计（大小/行数/索引） |
 | `DdlPlanner` | `application/ddl-planner.ts` | 由结构化变更生成 SQL 预览，执行前必须确认 |
@@ -67,8 +68,8 @@
 | 模块 | 状态 | 说明 |
 | --- | --- | --- |
 | `domain/driver.ts` | 扩展 | 增加 `DdlDriver`、`SessionDriver` 能力端口；`listDatabases` 已存在 |
-| `domain/scope.ts` | 新增 | scope 键与序列化，缓存键统一 `connectionId\u0000database` |
-| `application/connection-service.ts` | 扩展 | scope pool 缓存、`listDatabases`、`switchDatabase`（已交付） |
+| `domain/scope.ts` | 已交付 | scope 键与序列化，缓存键统一 `connectionId\u0000database` |
+| `application/connection-service.ts` | 已交付 | `requireScopedDriver` 作用域池、`listDatabases`、`switchDatabase`，断开时释放副库池 |
 | `application/console-service.ts` | 新增 | 多控制台，按控制台保存 `sql`/结果/作用域/事务归属 |
 | `application/object-service.ts` | 新增 | 搜索、DDL、统计；结果按 scope 缓存并有 TTL |
 | `application/ddl-planner.ts` | 新增 | 建表/改列/索引的结构化模型 → SQL，附风险标记 |
@@ -89,16 +90,20 @@
 | 分组 | 核心请求 | 说明 |
 | --- | --- | --- |
 | datasource | `connection.*` | 现有 CRUD/test/connect/disconnect，增加 `tunnel.*` |
-| scope | `database.list`、`scope.describe` | 数据库列举与作用域元信息 |
+| scope | `database.list`（已交付）、`scope.describe` | 数据库列举与作用域元信息 |
 | console | `console.open/close/list`、`query.execute`（带 scope） | 控制台与执行 |
 | object | `object.search`、`object.ddl`、`object.stats` | 对象搜索、DDL、统计 |
 | ddl | `ddl.preview`、`ddl.apply` | 结构变更预览与执行 |
 | import | `import.preview`、`import.start`、`import.cancel` | 导入向导与后台任务 |
 | session | `session.list`、`session.terminate` | 运维视图 |
-| data | `data.*`、`transaction.*`、`query.explain` | 现有能力，输入统一增加 `scope` |
+| data | `data.*`、`transaction.*`、`query.explain` | 现有能力，输入统一增加可选 `database`（已交付） |
 
-所有输入中的 `scope` 必填于新请求、可选于旧请求（缺省=连接主库），保证 0.1.x 客户端
-仍可工作；`PROTOCOL_VERSION` 升到 5，握手时比对并给出升级提示。
+所有输入中的 `database` 可选（缺省=连接主库），保证 0.1.x 客户端仍可工作；
+`PROTOCOL_VERSION` 已升到 5。
+
+作用域规则（D1.2 已落地）：资源树可按库嵌套展开，副库使用独立 pool 且**只读**；
+写请求（`query.execute` 中的 DML、`data.commit`）在副库上被服务层拒绝，并提示
+“切换连接后编辑”；事务始终绑定主库，`transaction.run` 不会带 `database`。
 
 ## 5. 生命周期与并发
 

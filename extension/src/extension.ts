@@ -343,6 +343,8 @@ function databaseRequestOf(argument: unknown): DatabaseRequest | undefined {
 
 interface TableTarget {
   readonly connectionId: string
+  /** Set when the node belongs to a secondary database of the connection. */
+  readonly database?: string
   readonly schema: string
   readonly relation: string
 }
@@ -350,10 +352,10 @@ interface TableTarget {
 /** Recognises the argument a relation node passes to `dataforge.openWorkbench`. */
 function tableTargetOf(argument: unknown): TableTarget | undefined {
   if (typeof argument !== 'object' || argument === null) return undefined
-  const node = argument as { connectionId?: unknown; schema?: unknown; relation?: unknown }
-  const { connectionId, schema, relation } = node
+  const node = argument as { connectionId?: unknown; database?: unknown; schema?: unknown; relation?: unknown }
+  const { connectionId, database, schema, relation } = node
   if (typeof connectionId !== 'string' || typeof schema !== 'string' || typeof relation !== 'string') return undefined
-  return { connectionId, schema, relation }
+  return typeof database === 'string' ? { connectionId, database, schema, relation } : { connectionId, schema, relation }
 }
 
 /** Quotes a PostgreSQL identifier for names that came back from the server. */

@@ -3,8 +3,10 @@ import type { CellValue } from '@shared/protocol'
 import { assertEditable, primaryKeyColumns } from '../domain/data-edit'
 import type { PendingChange } from '../domain/data-edit'
 import { DataForgeError, wrapError } from '../domain/errors'
+import { isDataEditingDriver } from './connection-service'
 import type {
   ColumnInfo,
+  DataEditingDriver,
   DataRow,
   MutationField,
   MutationResult,
@@ -19,6 +21,8 @@ import type { SchemaService } from './schema-service'
 
 export interface DataPageRequest {
   readonly connectionId: string
+  /** A secondary database of the same connection; omitted means its own database. */
+  readonly database?: string
   readonly schema: string
   readonly relation: string
   readonly limit: number
@@ -47,6 +51,8 @@ export interface CommitRow {
 
 export interface CommitRequest {
   readonly connectionId: string
+  /** A secondary database of the same connection; omitted means its own database. */
+  readonly database?: string
   readonly schema: string
   readonly relation: string
   readonly rows: readonly CommitRow[]
@@ -107,11 +113,18 @@ export class DataEditorService {
 
   async loadPage(request: DataPageRequest): Promise<DataPage> {
     const { connections, schemas, logger } = this.deps
-    const driver = connections.requireEditingDriver(request.connectionId)
-    const relation = await this.relationInfo(request.connectionId, request.schema, request.relation)
-    const columns = await schemas.listColumns(request.connectionId, request.schema, request.relation)
+    const profile = connections.get(request.connectionId)
+    const secondary = request.database !== undefined && request.database !== profile.database
+    const driver = secondary
+      ? await this.scopedEditingDriver(request.connectionId, request.database)
+      : connections.requireEditingDriver(request.connectionId)
+    const relation = await this.relationInfo(request.connectionId, request.schema, request.relation, request.database)
+    const columns = await schemas.listColumns(request.connectionId, request.schema, request.relation, request.database)
     const primaryKey = primaryKeyColumns(columns).map((column) => column.name)
-    const readOnlyReason = this.readOnlyReason(relation, columns)
+    // Writes stay with the connection's own database; another one is browsable only.
+    const readOnlyReason = secondary
+      ? `Switch the connection to database "${request.database}" to edit this relation.`
+      : this.readOnlyReason(relation, columns)
     const limit = clamp(request.limit, MIN_LIMIT, MAX_LIMIT, PAGE_DEFAULT)
     const offset = Math.max(0, Math.trunc(request.offset))
 
@@ -185,6 +198,12 @@ export class DataEditorService {
     const { connections, schemas } = this.deps
     const profile = connections.get(request.connectionId)
     if (profile?.readOnly) throw new DataForgeError('invalid_request', 'This connection is read-only, so nothing was saved.')
+    if (request.database !== undefined && request.database !== profile.database) {
+      throw new DataForgeError(
+        'invalid_request',
+        `Switch the connection to database "${request.database}" before saving changes.`,
+      )
+    }
 
     const driver = connections.requireEditingDriver(request.connectionId)
     const relation = await this.relationInfo(request.connectionId, request.schema, request.relation)
@@ -244,6 +263,14 @@ export class DataEditorService {
     return { inserted, updated, deleted, returnedKeys }
   }
 
+  private async scopedEditingDriver(connectionId: string, database: string | undefined): Promise<DataEditingDriver> {
+    const driver = await this.deps.connections.requireScopedDriver(connectionId, database)
+    if (!isDataEditingDriver(driver)) {
+      throw new DataForgeError('internal', 'This connection does not support data editing yet.')
+    }
+    return driver
+  }
+
   private readOnlyReason(relation: RelationInfo, columns: readonly ColumnInfo[]): string | undefined {
     try {
       assertEditable(relation, columns)
@@ -253,8 +280,13 @@ export class DataEditorService {
     }
   }
 
-  private async relationInfo(connectionId: string, schema: string, relation: string): Promise<RelationInfo> {
-    const relations = await this.deps.schemas.listRelations(connectionId, schema)
+  private async relationInfo(
+    connectionId: string,
+    schema: string,
+    relation: string,
+    database?: string,
+  ): Promise<RelationInfo> {
+    const relations = await this.deps.schemas.listRelations(connectionId, schema, database)
     const match = relations.find((entry) => entry.name === relation)
     if (!match) throw new DataForgeError('not_found', `Relation "${schema}.${relation}" no longer exists.`)
     return match

@@ -14,6 +14,8 @@ const EXPORT_BATCH_SIZE = 1_000
 
 export interface ExportRequest {
   readonly connectionId: string
+  /** A secondary database of the same connection; omitted means its own database. */
+  readonly database?: string
   readonly schema: string
   readonly relation: string
   readonly targetPath: string
@@ -69,10 +71,10 @@ export class ExportService {
   }
 
   private async streamTable(request: ExportRequest, signal?: AbortSignal): Promise<ExportResult> {
-    const driver = this.requireDriver(request.connectionId)
+    const driver = await this.requireDriver(request.connectionId, request.database)
     const { schemas, logger } = this.deps
 
-    const columns = await schemas.listColumns(request.connectionId, request.schema, request.relation)
+    const columns = await schemas.listColumns(request.connectionId, request.schema, request.relation, request.database)
     if (columns.length === 0) {
       throw new DataForgeError('not_found', `Relation "${request.schema}.${request.relation}" no longer exists.`)
     }
@@ -108,8 +110,8 @@ export class ExportService {
     }
   }
 
-  private requireDriver(connectionId: string): TableExportDriver {
-    const driver = this.deps.connections.requireDriver(connectionId)
+  private async requireDriver(connectionId: string, database?: string): Promise<TableExportDriver> {
+    const driver = await this.deps.connections.requireScopedDriver(connectionId, database)
     if (!isTableExportDriver(driver)) {
       throw new DataForgeError('internal', 'This connection does not support CSV export yet.')
     }

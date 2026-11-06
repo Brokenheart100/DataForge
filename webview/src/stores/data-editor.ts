@@ -63,6 +63,8 @@ export const useDataEditorStore = defineStore('data-editor', () => {
   const connectionId = ref<string | null>(null)
   const schema = ref<string | null>(null)
   const relation = ref<string | null>(null)
+  /** Set only when browsing a database other than the connection's own. */
+  const database = ref<string | null>(null)
   const columns = ref<DataColumnDto[]>([])
   const primaryKey = ref<string[]>([])
   const rows = ref<GridRow[]>([])
@@ -119,6 +121,7 @@ export const useDataEditorStore = defineStore('data-editor', () => {
       applyPage(
         await host.request('data.page', {
           connectionId: connectionId.value,
+          database: database.value ?? undefined,
           schema: schema.value,
           relation: relation.value,
           limit: limit.value,
@@ -133,8 +136,14 @@ export const useDataEditorStore = defineStore('data-editor', () => {
     }
   }
 
-  async function open(nextConnectionId: string, nextSchema: string, nextRelation: string): Promise<void> {
+  async function open(
+    nextConnectionId: string,
+    nextSchema: string,
+    nextRelation: string,
+    nextDatabase: string | null = null,
+  ): Promise<void> {
     connectionId.value = nextConnectionId
+    database.value = nextDatabase
     schema.value = nextSchema
     relation.value = nextRelation
     orderBy.value = []
@@ -146,6 +155,7 @@ export const useDataEditorStore = defineStore('data-editor', () => {
 
   function close(): void {
     connectionId.value = null
+    database.value = null
     schema.value = null
     relation.value = null
     rows.value = []
@@ -241,6 +251,7 @@ export const useDataEditorStore = defineStore('data-editor', () => {
         'data.commit',
         {
           connectionId: connectionId.value,
+          database: database.value ?? undefined,
           schema: schema.value,
           relation: relation.value,
           changes: changes.value,
@@ -283,6 +294,7 @@ export const useDataEditorStore = defineStore('data-editor', () => {
         'data.export',
         {
           connectionId: connectionId.value,
+          database: database.value ?? undefined,
           schema: schema.value,
           relation: relation.value,
         },
@@ -310,6 +322,7 @@ export const useDataEditorStore = defineStore('data-editor', () => {
 
   return {
     connectionId,
+    database,
     schema,
     relation,
     columns,

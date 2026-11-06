@@ -11,10 +11,23 @@ type TreeNode =
   | { readonly kind: 'connection'; readonly summary: ConnectionSummary }
   | { readonly kind: 'databases'; readonly connectionId: string; readonly active: string }
   | { readonly kind: 'database'; readonly connectionId: string; readonly name: string; readonly active: boolean }
-  | { readonly kind: 'schemas'; readonly connectionId: string }
-  | { readonly kind: 'schema'; readonly connectionId: string; readonly name: string }
-  | { readonly kind: 'relations'; readonly connectionId: string; readonly schema: string; readonly title: string; readonly views: boolean }
-  | { readonly kind: 'relation'; readonly connectionId: string; readonly schema: string; readonly relation: RelationInfo }
+  | { readonly kind: 'schemas'; readonly connectionId: string; readonly database: string; readonly active: boolean }
+  | { readonly kind: 'schema'; readonly connectionId: string; readonly database: string; readonly name: string }
+  | {
+      readonly kind: 'relations'
+      readonly connectionId: string
+      readonly database: string
+      readonly schema: string
+      readonly title: string
+      readonly views: boolean
+    }
+  | {
+      readonly kind: 'relation'
+      readonly connectionId: string
+      readonly database: string
+      readonly schema: string
+      readonly relation: RelationInfo
+    }
   | { readonly kind: 'column'; readonly column: ColumnInfo }
   | { readonly kind: 'message'; readonly label: string; readonly description?: string; readonly icon?: string }
 
@@ -27,6 +40,9 @@ function stateIcon(state: ConnectionSummary['state']): string {
 /**
  * Lazy connections tree: nothing is loaded until a node is expanded, and
  * metadata requests go through SchemaService so repeated expansions are cached.
+ *
+ * The hierarchy follows DataGrip: connection → Databases → database → Schemas,
+ * so several databases of one server are browsable without extra connections.
  */
 export class ConnectionsTreeProvider implements vscode.TreeDataProvider<TreeNode>, vscode.Disposable {
   private readonly changed = new vscode.EventEmitter<TreeNode | undefined>()
@@ -70,12 +86,14 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<TreeNode
       }
       case 'databases': {
         const item = new vscode.TreeItem('Databases', vscode.TreeItemCollapsibleState.Collapsed)
+        item.id = `databases:${node.connectionId}`
         item.description = node.active
         item.iconPath = new vscode.ThemeIcon('database')
         return item
       }
       case 'database': {
-        const item = new vscode.TreeItem(node.name, vscode.TreeItemCollapsibleState.None)
+        const item = new vscode.TreeItem(node.name, vscode.TreeItemCollapsibleState.Collapsed)
+        item.id = `database:${node.connectionId}:${node.name}`
         item.iconPath = new vscode.ThemeIcon('database')
         item.description = node.active ? 'current' : undefined
         item.tooltip = node.active
@@ -92,28 +110,40 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<TreeNode
       }
       case 'schemas': {
         const item = new vscode.TreeItem('Schemas', vscode.TreeItemCollapsibleState.Collapsed)
+        item.id = `schemas:${node.connectionId}:${node.database}`
         item.iconPath = new vscode.ThemeIcon('symbol-namespace')
+        item.description = node.active ? undefined : node.database
         return item
       }
       case 'schema': {
         const item = new vscode.TreeItem(node.name, vscode.TreeItemCollapsibleState.Collapsed)
+        item.id = `schema:${node.connectionId}:${node.database}:${node.name}`
         item.iconPath = new vscode.ThemeIcon('symbol-namespace')
         return item
       }
       case 'relations': {
         const item = new vscode.TreeItem(node.title, vscode.TreeItemCollapsibleState.Collapsed)
+        item.id = `relations:${node.connectionId}:${node.database}:${node.schema}:${node.views ? 'views' : 'tables'}`
         item.iconPath = new vscode.ThemeIcon(node.views ? 'eye' : 'table')
         return item
       }
       case 'relation': {
         const item = new vscode.TreeItem(node.relation.name, vscode.TreeItemCollapsibleState.Collapsed)
+        item.id = `relation:${node.connectionId}:${node.database}:${node.schema}:${node.relation.name}`
         item.contextValue = 'dataforge.relation'
         item.description = node.relation.kind === 'view' ? 'view' : undefined
         item.iconPath = new vscode.ThemeIcon(node.relation.kind === 'view' ? 'eye' : 'table')
         item.command = {
           command: 'dataforge.openWorkbench',
           title: 'Open query',
-          arguments: [{ connectionId: node.connectionId, schema: node.schema, relation: node.relation.name }],
+          arguments: [
+            {
+              connectionId: node.connectionId,
+              database: node.database,
+              schema: node.schema,
+              relation: node.relation.name,
+            },
+          ],
         }
         return item
       }
@@ -149,27 +179,33 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<TreeNode
           if (node.summary.state !== 'connected') {
             await this.connections.connect(node.summary.id)
           }
-          return [
-            { kind: 'databases', connectionId: node.summary.id, active: node.summary.database } as const,
-            { kind: 'schemas', connectionId: node.summary.id } as const,
-          ]
+          return [{ kind: 'databases', connectionId: node.summary.id, active: node.summary.database } as const]
         }
         case 'databases': {
           const databases = await this.connections.listDatabases(node.connectionId)
           const summaries = this.connections.list()
           const active = summaries.find((summary) => summary.id === node.connectionId)?.database ?? node.active
+          if (databases.length === 0) return [message('No databases')]
           return databases.map(
             (name): TreeNode => ({ kind: 'database', connectionId: node.connectionId, name, active: name === active }),
           )
         }
         case 'database':
-          return []
+          return [{ kind: 'schemas', connectionId: node.connectionId, database: node.name, active: node.active }]
         case 'schemas': {
-          const names = await this.schemas.listSchemas(node.connectionId)
-          return names.map((name) => ({ kind: 'schema', connectionId: node.connectionId, name }) as const)
+          const names = await this.schemas.listSchemas(node.connectionId, node.database)
+          if (names.length === 0) return [message('No schemas')]
+          return names.map(
+            (name): TreeNode => ({
+              kind: 'schema',
+              connectionId: node.connectionId,
+              database: node.database,
+              name,
+            }),
+          )
         }
         case 'schema': {
-          const relations = await this.schemas.listRelations(node.connectionId, node.name)
+          const relations = await this.schemas.listRelations(node.connectionId, node.name, node.database)
           const tables = relations.filter((relation) => relation.kind !== 'view')
           const views = relations.filter((relation) => relation.kind === 'view')
           const groups: TreeNode[] = []
@@ -177,6 +213,7 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<TreeNode
             groups.push({
               kind: 'relations',
               connectionId: node.connectionId,
+              database: node.database,
               schema: node.name,
               title: `Tables (${tables.length})`,
               views: false,
@@ -186,6 +223,7 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<TreeNode
             groups.push({
               kind: 'relations',
               connectionId: node.connectionId,
+              database: node.database,
               schema: node.name,
               title: `Views (${views.length})`,
               views: true,
@@ -194,20 +232,26 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<TreeNode
           return groups.length > 0 ? groups : [message('No tables or views')]
         }
         case 'relations': {
-          const relations = await this.schemas.listRelations(node.connectionId, node.schema)
+          const relations = await this.schemas.listRelations(node.connectionId, node.schema, node.database)
           return relations
             .filter((relation) => (node.views ? relation.kind === 'view' : relation.kind !== 'view'))
             .map(
               (relation): TreeNode => ({
                 kind: 'relation',
                 connectionId: node.connectionId,
+                database: node.database,
                 schema: node.schema,
                 relation,
               }),
             )
         }
         case 'relation': {
-          const columns = await this.schemas.listColumns(node.connectionId, node.schema, node.relation.name)
+          const columns = await this.schemas.listColumns(
+            node.connectionId,
+            node.schema,
+            node.relation.name,
+            node.database,
+          )
           return columns.map((column) => ({ kind: 'column', column }) as const)
         }
         case 'column':
@@ -216,7 +260,7 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<TreeNode
           return []
       }
     } catch (error) {
-      const label = error instanceof Error ? error.message.split('\n')[0] ?? error.message : String(error)
+      const label = error instanceof Error ? (error.message.split('\n')[0] ?? error.message) : String(error)
       this.logger.error(`Tree expansion failed`, error)
       return [message(label, undefined, 'error')]
     }

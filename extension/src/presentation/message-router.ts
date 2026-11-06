@@ -56,6 +56,7 @@ const sortSchema = z.object({
 
 const dataPageSchema = z.object({
   connectionId: z.string().min(1).max(128),
+  database: z.string().min(1).max(63).optional(),
   schema: z.string().min(1).max(63),
   relation: z.string().min(1).max(63),
   limit: z.number().int().min(1).max(1_000),
@@ -71,6 +72,7 @@ const rowChangeSchema = z.discriminatedUnion('kind', [
 
 const dataCommitSchema = z.object({
   connectionId: z.string().min(1).max(128),
+  database: z.string().min(1).max(63).optional(),
   schema: z.string().min(1).max(63),
   relation: z.string().min(1).max(63),
   changes: z
@@ -97,21 +99,34 @@ const payloadSchemas: Readonly<Record<RequestType, z.ZodType>> = {
     }),
   'connection.connect': idSchema,
   'connection.disconnect': idSchema,
+  'database.list': z.object({ connectionId: z.string().min(1).max(128) }),
   'query.execute': z.object({
     connectionId: z.string().min(1).max(128),
+    database: z.string().min(1).max(63).optional(),
     sql: z.string().min(1).max(1_000_000),
     maxRows: z.number().int().min(1).max(10_000),
   }),
   'query.cancel': z.object({ targetRequestId: z.string().min(1).max(128) }),
   'query.explain': z.object({
     connectionId: z.string().min(1).max(128),
+    database: z.string().min(1).max(63).optional(),
     sql: z.string().min(1).max(1_000_000),
   }),
-  'transaction.begin': z.object({ connectionId: z.string().min(1).max(128) }),
-  'transaction.commit': z.object({ connectionId: z.string().min(1).max(128) }),
-  'transaction.rollback': z.object({ connectionId: z.string().min(1).max(128) }),
+  'transaction.begin': z.object({
+    connectionId: z.string().min(1).max(128),
+    database: z.string().min(1).max(63).optional(),
+  }),
+  'transaction.commit': z.object({
+    connectionId: z.string().min(1).max(128),
+    database: z.string().min(1).max(63).optional(),
+  }),
+  'transaction.rollback': z.object({
+    connectionId: z.string().min(1).max(128),
+    database: z.string().min(1).max(63).optional(),
+  }),
   'transaction.run': z.object({
     connectionId: z.string().min(1).max(128),
+    database: z.string().min(1).max(63).optional(),
     sql: z.string().min(1).max(1_000_000),
     maxRows: z.number().int().min(1).max(10_000),
   }),
@@ -119,6 +134,7 @@ const payloadSchemas: Readonly<Record<RequestType, z.ZodType>> = {
   'data.commit': dataCommitSchema,
   'data.export': z.object({
     connectionId: z.string().min(1).max(128),
+    database: z.string().min(1).max(63).optional(),
     schema: z.string().min(1).max(63),
     relation: z.string().min(1).max(63),
   }),
@@ -250,6 +266,8 @@ export class MessageRouter {
         return connections.connect(as<{ id: string }>(payload).id)
       case 'connection.disconnect':
         return connections.disconnect(as<{ id: string }>(payload).id)
+      case 'database.list':
+        return connections.listDatabases(as<{ connectionId: string }>(payload).connectionId)
       case 'query.execute':
         return queries.execute(requestId, as<QueryInput>(payload))
       case 'query.cancel':
@@ -258,8 +276,8 @@ export class MessageRouter {
       case 'query.explain':
         return queries.explain(requestId, as<ExplainInput>(payload))
       case 'transaction.begin': {
-        const { connectionId } = as<{ connectionId: string }>(payload)
-        await sessionService(this.deps).begin(connectionId)
+        const { connectionId, database } = as<{ connectionId: string; database?: string }>(payload)
+        await sessionService(this.deps).begin(connectionId, database)
         return { connectionId, active: true } satisfies SessionStateDto
       }
       case 'transaction.commit': {
@@ -283,6 +301,7 @@ export class MessageRouter {
         const input = as<DataCommitInput>(payload)
         const result = await dataEditor.commit({
           connectionId: input.connectionId,
+          database: input.database,
           schema: input.schema,
           relation: input.relation,
           rows: input.changes,

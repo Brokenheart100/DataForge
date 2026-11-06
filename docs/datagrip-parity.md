@@ -27,12 +27,12 @@
 这一版是**切换**而非**嵌套展开**：PostgreSQL 不允许跨库查询，切换会重建连接池，
 正在执行的查询/事务会被中断，因此必须由用户显式触发。
 
-### 1.2 待完成：按数据库嵌套展开（D1.2）
+### 1.2 已完成：按数据库嵌套展开（D1.2，0.1.4）
 
 目标：`Databases → <database> → Schemas → schema → Tables/Views → relation → columns`，
 与 DataGrip 一致，且浏览不切换主连接。
 
-实现要点（对应协议 v5）：
+实现要点（协议 v5，已落地）：
 
 1. `ConnectionService` 增加作用域驱动：`requireDriver(connectionId, database?)`，
    以 `connectionId + database` 为键缓存 pool，`disconnect` / `update` / `delete`
@@ -46,8 +46,8 @@
 5. 写路径默认仍绑定主连接数据库；对非主库的表，先提示“切换后编辑”再走
    `dataforge.switchDatabase`，避免 `xmin`、事务、导出语义含糊。
 
-验收：展开任意数据库不改变主连接；在其中执行 SQL 命中正确库；切换库后池被回收；
-非主库的表点击“编辑数据”会引导切换而不是静默失败。
+验收结果：展开任意数据库不改变主连接；在其中执行只读 SQL 命中正确库；断开/切换库后副库池被回收；
+非主库的表在数据页显示只读原因，提交前即被拒绝并提示“切换连接后编辑”。
 
 ## 2. 之后的切片（按依赖排序）
 

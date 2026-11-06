@@ -44,7 +44,7 @@ describe('MessageRouter transactions', () => {
       ok: true,
       data: { connectionId: 'c1', active: true },
     })
-    expect(sessions.begin).toHaveBeenCalledWith('c1')
+    expect(sessions.begin).toHaveBeenCalledWith('c1', undefined)
   })
 
   it('commits and reports the session closed', async () => {

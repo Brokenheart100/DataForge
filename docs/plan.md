@@ -4,12 +4,12 @@
 能力矩阵与差异清单见 [datagrip-parity.md](datagrip-parity.md)，目标架构见
 [architecture.md](architecture.md)，依赖取舍见 [dependencies.md](dependencies.md)。
 
-## 1. 现状（0.1.3）
+## 1. 现状（0.1.4 开发中）
 
 | 已交付 | 说明 |
 | --- | --- |
 | 数据源与连接 | PostgreSQL / MySQL，测试、增删改、连接/断开，SecretStorage 存密码 |
-| 资源树 | 连接 → Databases / Schemas → 表/视图组 → 表/视图 → 列（类型、PK、NOT NULL、默认值） |
+| 资源树 | 连接 → Databases → 库 → Schemas → 表/视图组 → 表/视图 → 列（类型、PK、NOT NULL、默认值）；副库只读浏览 |
 | 数据库切换 | `Databases` 节点列出服务器数据库，点击即切换连接并重连（0.1.3） |
 | SQL 与结果 | 执行全部/选中、取消、10 000 行上限、200 行网格分页、错误码展示 |
 | 数据编辑 | 事务化批量提交、`xmin` 乐观锁、无主键/视图只读、冲突整批回滚 |
@@ -40,6 +40,8 @@
 
 ## 4. 阶段 A：作用域与嵌套导航（D1.2）
 
+状态：✅ 实现完成（协议 v5，待发布 0.1.4）。
+
 目标：`Databases → 库 → Schemas → 表/视图 → 列` 与 DataGrip 一致，浏览不切换主连接。
 
 批次：
@@ -53,14 +55,14 @@
 
 ### 4.1 Todo List
 
-- [ ] 协议：新增 `scope` 字段与 `database.list`，`PROTOCOL_VERSION` 升到 5
-- [ ] `domain/scope.ts`：scope 键、序列化、缓存键工具
-- [ ] `ConnectionService`：`requireDriver(connectionId, scope?)` + 作用域池缓存与释放
-- [ ] `SchemaService`：`listSchemas/listRelations/listColumns` 接受 scope
-- [ ] 资源树：`Databases → 库 → Schemas → …`，主库标记 `current`
-- [ ] `RelationTarget` 携带 scope，工作台显示当前数据库并随请求下发
-- [ ] 副库为只读浏览；点“编辑数据”引导切换主库，不静默失败
-- [ ] 集成测试：同连接两库元数据互不串扰；切换后旧池释放
+- [x] 协议：新增可选 `database` 与 `database.list`，`PROTOCOL_VERSION` 升到 5
+- [x] `domain/scope.ts`：scope 键、序列化、缓存键工具
+- [x] `ConnectionService`：`requireScopedDriver(connectionId, database?)` + 作用域池缓存与释放
+- [x] `SchemaService`：`listSchemas/listRelations/listColumns` 接受 database
+- [x] 资源树：`Databases → 库 → Schemas → …`，主库标记 `current`
+- [x] `RelationTarget` 携带 `database`，工作台随查询/编辑请求下发
+- [x] 副库为只读浏览；编辑与提交均给出“切换连接后编辑”的明确提示
+- [x] 集成测试：同连接两库元数据互不串扰；副库写入被拒；切换/断开释放旧池
 
 ## 5. 阶段 B：多控制台
 

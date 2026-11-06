@@ -10,7 +10,12 @@
  * straight into VS Code SecretStorage; the host never sends them back.
  */
 
-export const PROTOCOL_VERSION = 4
+/**
+ * v5 adds the database dimension: connection-scoped requests accept an optional
+ * `database`, which defaults to the connection's own database. `database.list`
+ * enumerates what the server exposes so the explorer can nest by database.
+ */
+export const PROTOCOL_VERSION = 5
 
 export type SslMode = 'disable' | 'require' | 'verify-full'
 export type ConnectionState = 'disconnected' | 'connected' | 'error'
@@ -85,6 +90,8 @@ export interface QueryResultDto {
 
 export interface QueryInput {
   connectionId: string
+  /** Database to run in; omitted means the connection's own database. */
+  database?: string
   sql: string
   maxRows: number
 }
@@ -112,6 +119,8 @@ export interface DataRowDto {
 
 export interface DataPageInput {
   connectionId: string
+  /** Database to browse; omitted means the connection's own database. */
+  database?: string
   schema: string
   relation: string
   limit: number
@@ -145,6 +154,7 @@ export interface DataChangeDto {
 
 export interface DataCommitInput {
   connectionId: string
+  database?: string
   schema: string
   relation: string
   changes: DataChangeDto[]
@@ -165,6 +175,7 @@ export interface SessionStateDto {
 
 export interface ExplainInput {
   connectionId: string
+  database?: string
   sql: string
 }
 
@@ -176,6 +187,7 @@ export interface ExplainResultDto {
 
 export interface DataExportInput {
   connectionId: string
+  database?: string
   schema: string
   relation: string
 }
@@ -219,12 +231,13 @@ export interface RequestCatalogue {
   'connection.test': { input: ConnectionTestTarget; output: ConnectionTestResult }
   'connection.connect': { input: { id: string }; output: ConnectionSummary }
   'connection.disconnect': { input: { id: string }; output: ConnectionSummary }
+  'database.list': { input: { connectionId: string }; output: string[] }
   'query.execute': { input: QueryInput; output: QueryResultDto }
   'query.cancel': { input: { targetRequestId: string }; output: null }
   'query.explain': { input: ExplainInput; output: ExplainResultDto }
-  'transaction.begin': { input: { connectionId: string }; output: SessionStateDto }
-  'transaction.commit': { input: { connectionId: string }; output: SessionStateDto }
-  'transaction.rollback': { input: { connectionId: string }; output: SessionStateDto }
+  'transaction.begin': { input: { connectionId: string; database?: string }; output: SessionStateDto }
+  'transaction.commit': { input: { connectionId: string; database?: string }; output: SessionStateDto }
+  'transaction.rollback': { input: { connectionId: string; database?: string }; output: SessionStateDto }
   'transaction.run': { input: QueryInput; output: QueryResultDto }
   'data.page': { input: DataPageInput; output: DataPageDto }
   'data.commit': { input: DataCommitInput; output: DataCommitResult }
@@ -246,6 +259,7 @@ export const REQUEST_TYPES = [
   'connection.test',
   'connection.connect',
   'connection.disconnect',
+  'database.list',
   'query.execute',
   'query.cancel',
   'query.explain',
@@ -298,6 +312,8 @@ export interface BootstrapPayload {
 
 export interface RelationTarget {
   connectionId: string
+  /** Database the relation lives in; omitted means the connection's own database. */
+  database?: string
   schema: string
   relation: string
 }

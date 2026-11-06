@@ -93,6 +93,7 @@ function setup(driver: DatabaseDriver = new FakeDriver()) {
   }
   const connections = {
     requireDriver: () => driver,
+    get: () => ({ id: 'c1', name: 'local', database: 'forge' }),
     list: () => [{ id: 'c1', name: 'local' }],
   }
   const service = new QuerySessionService({ connections: connections as never, logger })

@@ -25,7 +25,7 @@ watch(
   (target) => {
     if (!target) return
     view.value = 'data'
-    void dataEditor.open(target.connectionId, target.schema, target.relation)
+    void dataEditor.open(target.connectionId, target.schema, target.relation, target.database ?? null)
     store.clearPendingRelation()
   },
 )

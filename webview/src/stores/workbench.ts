@@ -44,6 +44,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const initialized = ref(false)
   /** Set by an `editor.prefill` event that carries a relation to edit. */
   const pendingRelation = ref<RelationTarget | null>(null)
+  /** Database of a relation opened from another database of the same connection. */
+  const scopedDatabase = ref<string | null>(null)
 
   let toastSequence = 0
 
@@ -60,6 +62,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       return
     }
     activeConnectionId.value = id
+    scopedDatabase.value = null
   }
 
   /** Replaces a summary in place after a state transition. */
@@ -96,8 +99,13 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         sql.value = event.payload.sql
         if (event.payload.connectionId && connections.value.some((item) => item.id === event.payload.connectionId)) {
           activeConnectionId.value = event.payload.connectionId
+          scopedDatabase.value = null
         }
         if (event.payload.target) {
+          const own = connections.value.find((item) => item.id === event.payload.target?.connectionId)?.database
+          scopedDatabase.value = event.payload.target.database && event.payload.target.database !== own
+            ? event.payload.target.database
+            : null
           pendingRelation.value = event.payload.target
           pushToast('info', `Opened ${event.payload.target.schema}.${event.payload.target.relation}.`)
         } else {
@@ -234,7 +242,12 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       const inTransaction = transactionConnectionId.value === connectionId
       result.value = await host.request(
         inTransaction ? 'transaction.run' : 'query.execute',
-        { connectionId, sql: statement, maxRows: prefs.value.maxRows },
+        {
+          connectionId,
+          database: inTransaction ? undefined : (scopedDatabase.value ?? undefined),
+          sql: statement,
+          maxRows: prefs.value.maxRows,
+        },
         requestId,
       )
     } catch (caught) {
@@ -278,7 +291,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     explaining.value = true
     error.value = undefined
     try {
-      explainResult.value = await host.request('query.explain', { connectionId, sql: statement }, crypto.randomUUID())
+      explainResult.value = await host.request(
+        'query.explain',
+        { connectionId, database: scopedDatabase.value ?? undefined, sql: statement },
+        crypto.randomUUID(),
+      )
     } catch (caught) {
       const dto = describeError(caught)
       error.value = dto
@@ -320,6 +337,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     lastTest,
     toasts,
     pendingRelation,
+    scopedDatabase,
     initialize,
     refresh,
     setActiveConnection,

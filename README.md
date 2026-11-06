@@ -11,8 +11,9 @@ Phases 1–3 are complete and Phase 4 added a second driver: manage connections,
 browse schemas/tables/views/columns, run SQL, read results, edit table rows in a
 grid with transactional commit, optimistic locking and CSV export, and complete
 SQL through VS Code's own language services. PostgreSQL gets the full feature
-set; MySQL currently covers connections, metadata and queries. The explorer lists
-the server's databases and can point a connection at another one in a click.
+set; MySQL currently covers connections, metadata and queries. The explorer nests
+`Databases → database → schemas → tables`: extra databases open read-only, and a
+connection can be pointed at another database in one click.
 
 ```text
 extension/           VS Code extension (Node 22+, CommonJS bundle via esbuild)

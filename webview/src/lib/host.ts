@@ -170,6 +170,9 @@ class DemoTransport implements Transport {
       case 'connection.list':
         succeed(this.bootstrap().connections)
         return
+      case 'database.list':
+        succeed(['analytics', 'reporting'])
+        return
       case 'connection.test':
         succeed({ serverVersion: 'PostgreSQL 16.4 (demo)', database: 'analytics', user: 'postgres', latencyMs: 42 })
         return

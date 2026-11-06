@@ -31,9 +31,18 @@ export class QuerySessionService {
     return this.sessions.has(connectionId)
   }
 
-  async begin(connectionId: string): Promise<void> {
+  async begin(connectionId: string, database?: string): Promise<void> {
     if (this.sessions.has(connectionId)) {
       throw new DataForgeError('invalid_request', 'A transaction is already open on this connection.')
+    }
+    if (database !== undefined) {
+      const profile = this.deps.connections.get(connectionId)
+      if (database !== profile.database) {
+        throw new DataForgeError(
+          'invalid_request',
+          `Transactions run on the connection's own database. Switch the connection to "${database}" first.`,
+        )
+      }
     }
     const driver = this.deps.connections.requireDriver(connectionId)
     if (!isTransactionalDriver(driver)) {

@@ -70,14 +70,19 @@ export class QueryService {
       throw new DataForgeError('invalid_request', 'A query with this request id is already running.')
     }
 
-    const driver = this.connections.requireDriver(input.connectionId)
+    const summary = this.connections.get(input.connectionId)
+    const driver = await this.connections.requireScopedDriver(input.connectionId, input.database)
     const maxRows = clampMaxRows(input.maxRows, this.options.defaultMaxRows)
 
-    const summary = this.connections.get(input.connectionId)
-    if (summary.readOnly && !isReadOnlyStatement(input.sql)) {
+    // Browsing another database of the same connection is read-only until the
+    // user switches the connection to it: write state lives with the pool.
+    const secondary = input.database !== undefined && input.database !== summary.database
+    if ((summary.readOnly || secondary) && !isReadOnlyStatement(input.sql)) {
       throw new DataForgeError(
         'invalid_request',
-        `Connection "${summary.name}" is read-only. Only SELECT-style statements can run.`,
+        secondary
+          ? `Database "${input.database}" is opened read-only. Switch the connection to it to run writes.`
+          : `Connection "${summary.name}" is read-only. Only SELECT-style statements can run.`,
       )
     }
 
@@ -133,7 +138,7 @@ export class QueryService {
       throw new DataForgeError('invalid_request', 'EXPLAIN here accepts one read-only statement. Run EXPLAIN ANALYZE in the SQL editor for writes.')
     }
 
-    const driver = this.connections.requireDriver(input.connectionId)
+    const driver = await this.connections.requireScopedDriver(input.connectionId, input.database)
     const controller = new AbortController()
     this.running.set(requestId, controller)
     const startedAt = Date.now()
@@ -152,7 +157,8 @@ export class QueryService {
   }
 
   /** Aborts a running request; the driver stops it server-side. */
-  cancel(targetRequestId: string): void {    const controller = this.running.get(targetRequestId)
+  cancel(targetRequestId: string): void {
+    const controller = this.running.get(targetRequestId)
     if (!controller) throw new DataForgeError('not_found', 'That query is not running any more.')
     this.options.logger.info(`Cancelling query ${targetRequestId}`)
     controller.abort()
@@ -188,7 +194,8 @@ function prettyPlan(value: CellValue | undefined): string {
 }
 
 /** Maps a driver result to the wire DTO shared with the webview. */
-export function toQueryResultDto(result: DriverQueryResult): QueryResultDto {  return {
+export function toQueryResultDto(result: DriverQueryResult): QueryResultDto {
+  return {
     columns: [...result.columns],
     rows: result.rows.map((row) => [...row]),
     rowCount: result.rows.length,
