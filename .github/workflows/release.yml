@@ -106,4 +106,4 @@ jobs:
             echo "VSCE_PAT is not configured — skipping marketplace publish."
             exit 0
           fi
-          npx @vscode/vsce publish --packagePath dataforge.vsix --pat "${VSCE_PAT}"
+          npx @vscode/vsce publish --packagePath dataforge.vsix --pat "${VSCE_PAT}" --skip-duplicate

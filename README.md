@@ -1,6 +1,10 @@
 # DataForge
 
 [![CI](https://github.com/Brokenheart100/DataForge/actions/workflows/ci.yml/badge.svg)](https://github.com/Brokenheart100/DataForge/actions/workflows/ci.yml)
+[![Marketplace](https://img.shields.io/visual-studio-marketplace/v/dataforge.dataforge-ide?label=marketplace)](https://marketplace.visualstudio.com/items?itemName=dataforge.dataforge-ide)
+
+Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=dataforge.dataforge-ide)
+(extension id `dataforge.dataforge-ide`) or from the VSIX on the releases page.
 
 A PostgreSQL-first database IDE for VS Code with a neo-brutalist workbench.
 Phases 1–3 are complete and Phase 4 added a second driver: manage connections,
@@ -97,8 +101,10 @@ git push origin main --tags
 ```
 
 Set the `VSCE_PAT` secret (an Azure DevOps personal access token with the
-Marketplace *Manage* scope) only after replacing the placeholder `publisher` in
-`extension/package.json`. Without the secret the release job still publishes the
+Marketplace *Manage* scope) to let the release job publish automatically. The
+publisher is `dataforge` and the extension id is `dataforge.dataforge-ide`; the
+publish step uses `--skip-duplicate`, so re-running a tag whose version is
+already live is safe. Without the secret the release job still publishes the
 GitHub release and skips the Marketplace step.
 
 ## Documentation
