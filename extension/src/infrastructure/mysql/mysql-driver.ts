@@ -173,6 +173,11 @@ export class MySqlDriver implements DatabaseDriver {
     }
   }
 
+  async listDatabases(): Promise<string[]> {
+    // MySQL exposes databases as schemas of the same server.
+    return this.listSchemas()
+  }
+
   async listSchemas(): Promise<string[]> {
     const result = await this.query({ sql: SCHEMA_SQL, maxRows: 1_000 })
     return result.rows.map((row) => String(row[0] ?? '')).filter((name) => name.length > 0)

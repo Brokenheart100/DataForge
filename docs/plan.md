@@ -265,3 +265,34 @@ Phase 3 不重写编辑器：补全/格式化/诊断全部通过 VS Code 语言 
 | 视图误编辑 | 数据不一致 | 仅 `relkind r/p` 可编辑；能力开关在服务端判定，前端只做展示 |
 | 大结果/大导出 | 内存与 UI 卡顿 | 行数上限 + 网格分页 + 导出流式 + 可取消 |
 | 补全依赖元数据缓存 | 缓存过期导致错误建议 | 缓存按连接失效；补全候选仅作提示，不改变语义 |
+
+## 10. DataGrip 对齐（进行中）
+
+完整路线见 [datagrip-parity.md](datagrip-parity.md)。原则：按工作流切片推进，不追 UI 复刻。
+
+### 10.1 Todo List
+
+#### D1 数据库维度
+
+- [x] 驱动端口增加可选 `listDatabases?()`，PostgreSQL / MySQL 各自实现
+- [x] `ConnectionService.listDatabases()` 带按连接缓存，无跨库能力时退化为当前数据库
+- [x] `ConnectionService.switchDatabase()`：改 profile 数据库并重连，日志可追踪
+- [x] 资源树新增 `Databases` 节点与数据库节点，当前库标 `current`
+- [x] 命令 `dataforge.switchDatabase` + 点击非当前库即切换并刷新
+- [x] 单测覆盖列举与切换（含空白数据库名被拒）
+- [ ] D1.2 作用域驱动：`requireDriver(connectionId, database?)` + 按库池缓存与释放
+- [ ] D1.2 `database.list` 协议请求与 `SchemaService` 缓存键加入 `database`
+- [ ] D1.2 协议输入统一可选 `database`（查询 / EXPLAIN / 分页 / 提交 / 导出 / 事务）
+- [ ] D1.2 资源树节点携带 `database`，支持 `Databases → 库 → Schemas → …` 嵌套
+- [ ] D1.2 `RelationTarget` 带 `database`，工作台显示并下发当前数据库
+- [ ] D1.2 非主库表进入编辑前引导切换，避免 `xmin` / 事务语义含糊
+
+#### D2–D8（未开始）
+
+- [ ] D2 多控制台与会话隔离
+- [ ] D3 全库对象搜索、DDL 查看、表统计
+- [ ] D4 列级编辑、过滤、批量粘贴、二进制/JSON 预览
+- [ ] D5 CSV/JSON/SQL 导入（映射预览 + 错误行报告）
+- [ ] D6 建表/改表对话框与 schema diff
+- [ ] D7 SQLite / SQL Server / SSH 隧道
+- [ ] D8 执行计划可视化、会话与锁查看

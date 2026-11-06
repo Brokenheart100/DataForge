@@ -9,6 +9,8 @@ import type { ColumnInfo, RelationInfo } from '../domain/driver'
 
 type TreeNode =
   | { readonly kind: 'connection'; readonly summary: ConnectionSummary }
+  | { readonly kind: 'databases'; readonly connectionId: string; readonly active: string }
+  | { readonly kind: 'database'; readonly connectionId: string; readonly name: string; readonly active: boolean }
   | { readonly kind: 'schemas'; readonly connectionId: string }
   | { readonly kind: 'schema'; readonly connectionId: string; readonly name: string }
   | { readonly kind: 'relations'; readonly connectionId: string; readonly schema: string; readonly title: string; readonly views: boolean }
@@ -64,6 +66,28 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<TreeNode
             .join('\n\n'),
         )
         item.iconPath = new vscode.ThemeIcon(stateIcon(node.summary.state))
+        return item
+      }
+      case 'databases': {
+        const item = new vscode.TreeItem('Databases', vscode.TreeItemCollapsibleState.Collapsed)
+        item.description = node.active
+        item.iconPath = new vscode.ThemeIcon('database')
+        return item
+      }
+      case 'database': {
+        const item = new vscode.TreeItem(node.name, vscode.TreeItemCollapsibleState.None)
+        item.iconPath = new vscode.ThemeIcon('database')
+        item.description = node.active ? 'current' : undefined
+        item.tooltip = node.active
+          ? `${node.name} — this connection is using it`
+          : `Switch this connection to ${node.name}`
+        if (!node.active) {
+          item.command = {
+            command: 'dataforge.switchDatabase',
+            title: 'Use this database',
+            arguments: [{ connectionId: node.connectionId, database: node.name }],
+          }
+        }
         return item
       }
       case 'schemas': {
@@ -125,8 +149,21 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<TreeNode
           if (node.summary.state !== 'connected') {
             await this.connections.connect(node.summary.id)
           }
-          return [{ kind: 'schemas', connectionId: node.summary.id }]
+          return [
+            { kind: 'databases', connectionId: node.summary.id, active: node.summary.database } as const,
+            { kind: 'schemas', connectionId: node.summary.id } as const,
+          ]
         }
+        case 'databases': {
+          const databases = await this.connections.listDatabases(node.connectionId)
+          const summaries = this.connections.list()
+          const active = summaries.find((summary) => summary.id === node.connectionId)?.database ?? node.active
+          return databases.map(
+            (name): TreeNode => ({ kind: 'database', connectionId: node.connectionId, name, active: name === active }),
+          )
+        }
+        case 'database':
+          return []
         case 'schemas': {
           const names = await this.schemas.listSchemas(node.connectionId)
           return names.map((name) => ({ kind: 'schema', connectionId: node.connectionId, name }) as const)

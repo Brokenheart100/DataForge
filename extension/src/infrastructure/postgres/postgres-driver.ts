@@ -64,6 +64,12 @@ const SCHEMA_SQL = `
   where nspname not like 'pg\\_%' and nspname <> 'information_schema'
   order by nspname`
 
+const DATABASE_SQL = `
+  select datname
+  from pg_catalog.pg_database
+  where not datistemplate and datallowconn
+  order by datname`
+
 const RELATION_SQL = `
   select c.relname as name, c.relkind as kind
   from pg_catalog.pg_class c
@@ -330,6 +336,11 @@ export class PostgresDriver implements DataEditingDriver, TableExportDriver, Tra
         release(false)
       },
     }
+  }
+
+  async listDatabases(): Promise<string[]> {
+    const result = await this.runScalarQuery<{ datname: string }>(DATABASE_SQL)
+    return result.map((row) => row.datname)
   }
 
   async listSchemas(): Promise<string[]> {

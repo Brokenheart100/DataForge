@@ -156,6 +156,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       })
     }),
 
+    vscode.commands.registerCommand('dataforge.switchDatabase', async (argument: unknown) => {
+      const request = databaseRequestOf(argument)
+      if (!request) return
+      await guard('Use database', async () => {
+        schemas.invalidate(request.connectionId)
+        await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: `Switching to ${request.database}…` },
+          () => connections.switchDatabase(request.connectionId, request.database),
+        )
+        tree.refresh()
+      })
+    }),
+
     vscode.commands.registerCommand('dataforge.disconnect', async (argument: unknown) => {
       const connectionId = requireConnectionId(argument)
       if (!connectionId) return
@@ -312,6 +325,20 @@ function connectionIdOf(argument: unknown): string | undefined {
   if (typeof node.connectionId === 'string') return node.connectionId
   const id = node.summary?.id
   return typeof id === 'string' ? id : undefined
+}
+
+interface DatabaseRequest {
+  readonly connectionId: string
+  readonly database: string
+}
+
+/** Recognises the argument a database node passes to `dataforge.switchDatabase`. */
+function databaseRequestOf(argument: unknown): DatabaseRequest | undefined {
+  if (typeof argument !== 'object' || argument === null) return undefined
+  const node = argument as { connectionId?: unknown; database?: unknown }
+  const { connectionId, database } = node
+  if (typeof connectionId !== 'string' || typeof database !== 'string') return undefined
+  return { connectionId, database }
 }
 
 interface TableTarget {

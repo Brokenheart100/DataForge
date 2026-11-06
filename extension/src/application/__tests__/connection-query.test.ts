@@ -59,6 +59,10 @@ class FakeDriver implements DatabaseDriver {
     return { serverVersion: 'PostgreSQL 17.0', database: 'forge', user: 'postgres' }
   }
 
+  async listDatabases(): Promise<string[]> {
+    return ['forge', 'analytics']
+  }
+
   async query(input: DriverQueryInput): Promise<DriverQueryResult> {
     this.queries.push(input.sql)
     this.maxRowsSeen = input.maxRows
@@ -173,6 +177,23 @@ describe('ConnectionService', () => {
     expect(driver?.disposed).toBe(true)
     expect(updated.state).toBe('disconnected')
     expect(updated.host).toBe('db.internal')
+  })
+  it('lists server databases and reconnects when switching databases', async () => {
+    const harness = await connectedService()
+    expect(await harness.connections.listDatabases(harness.id)).toEqual(['forge', 'analytics'])
+    const before = harness.configs.length
+
+    const summary = await harness.connections.switchDatabase(harness.id, 'analytics')
+
+    expect(summary.database).toBe('analytics')
+    expect(harness.connections.get(harness.id).database).toBe('analytics')
+    expect(harness.connections.isConnected(harness.id)).toBe(true)
+    expect(harness.configs.length).toBeGreaterThan(before)
+    expect(harness.configs.at(-1)).toContain('/analytics')
+
+    await expect(harness.connections.switchDatabase(harness.id, '  ')).rejects.toMatchObject({
+      code: 'invalid_request',
+    })
   })
 })
 

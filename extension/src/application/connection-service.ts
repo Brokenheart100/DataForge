@@ -45,6 +45,7 @@ export class ConnectionService {
   private readonly profiles = new Map<string, ConnectionProfile>()
   private readonly drivers = new Map<string, DatabaseDriver>()
   private readonly runtime = new Map<string, RuntimeState>()
+  private readonly databases = new Map<string, Promise<string[]>>()
   private readonly changed = new Emitter<readonly ConnectionSummary[]>()
   private disposed = false
 
@@ -182,6 +183,7 @@ export class ConnectionService {
     const profile = this.profile(connectionId)
     const driver = this.drivers.get(connectionId)
     this.drivers.delete(connectionId)
+    this.databases.delete(connectionId)
     this.runtime.set(connectionId, { state: 'disconnected' })
     if (driver) await driver.dispose().catch((error: unknown) => this.deps.logger.warn(`Dispose failed: ${String(error)}`))
     this.changed.fire(this.list())
@@ -208,6 +210,39 @@ export class ConnectionService {
 
   isConnected(connectionId: string): boolean {
     return this.drivers.has(connectionId)
+  }
+
+  /**
+   * Databases the connected server exposes. Cached per connection because the
+   * list changes rarely; drivers without cross-database listing see their own.
+   */
+  async listDatabases(connectionId: string, refresh = false): Promise<string[]> {
+    const driver = this.requireDriver(connectionId)
+    if (!driver.listDatabases) return [this.profile(connectionId).database]
+    if (refresh) this.databases.delete(connectionId)
+    const cached = this.databases.get(connectionId)
+    if (cached) return cached
+    const pending = driver.listDatabases().catch((error: unknown) => {
+      this.databases.delete(connectionId)
+      throw error
+    })
+    this.databases.set(connectionId, pending)
+    return pending
+  }
+
+  /**
+   * Points the connection at another database and reconnects. PostgreSQL needs a
+   * separate backend per database, so this rebuilds the pool instead of nesting.
+   */
+  async switchDatabase(connectionId: string, database: string): Promise<ConnectionSummary> {
+    const profile = this.profile(connectionId)
+    const target = database.trim()
+    if (!target) throw new DataForgeError('invalid_request', 'Pick a database first.')
+    if (target === profile.database) return this.toSummary(profile)
+    await this.update(connectionId, { database: target })
+    const summary = await this.connect(connectionId)
+    this.deps.logger.info(`Switched "${profile.name}" to database "${target}"`)
+    return summary
   }
 
   async dispose(): Promise<void> {

@@ -65,6 +65,8 @@ export interface DatabaseDriver {
   readonly capabilities?: DriverCapabilities
   testConnection(): Promise<ServerInfo>
   query(input: DriverQueryInput): Promise<DriverQueryResult>
+  /** Databases visible on this server, when the engine can list them across databases. */
+  listDatabases?(): Promise<string[]>
   listSchemas(): Promise<string[]>
   listRelations(schema: string): Promise<RelationInfo[]>
   listColumns(schema: string, relation: string): Promise<ColumnInfo[]>
