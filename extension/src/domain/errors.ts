@@ -20,6 +20,27 @@ export function isDataForgeError(value: unknown): value is DataForgeError {
   return value instanceof DataForgeError
 }
 
+/**
+ * Optimistic-locking failure: the rows were changed or deleted by another
+ * session between loading and committing, so nothing was written.
+ *
+ * The keys are human-readable identity fragments (`id=42`), kept separate from
+ * the message so the webview can highlight the rows that moved.
+ */
+export class DataConflictError extends DataForgeError {
+  readonly keys: readonly string[]
+
+  constructor(keys: readonly string[]) {
+    const preview = keys.slice(0, 5).join('; ')
+    super(
+      'conflict',
+      `Another session changed or removed ${keys.length} row(s): ${preview}${keys.length > 5 ? ' …' : ''}. Nothing was saved — refresh and try again.`,
+    )
+    this.name = 'DataConflictError'
+    this.keys = keys
+  }
+}
+
 const PASSWORD_ASSIGNMENT = /(password|pwd)\s*=\s*([^\s;&]+)/gi
 const URL_CREDENTIALS = /(postgres(?:ql)?:\/\/[^:/@\s]+):[^@\s]+@/gi
 
@@ -29,6 +50,9 @@ export function redactSecrets(text: string): string {
 }
 
 export function toErrorDto(error: unknown): ErrorDto {
+  if (error instanceof DataConflictError) {
+    return { code: error.code, message: redactSecrets(error.message), conflictingKeys: [...error.keys] }
+  }
   if (isDataForgeError(error)) {
     return { code: error.code, message: redactSecrets(error.message) }
   }

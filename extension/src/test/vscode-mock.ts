@@ -165,6 +165,7 @@ function createPanel(): FakePanel {
 }
 
 export const window = {
+  activeTextEditor: undefined,
   createOutputChannel: (name: string) => createChannel(name),
   createStatusBarItem: () => ({
     text: '',
@@ -199,6 +200,54 @@ export const workspace = {
     update: async () => undefined,
   }),
   onDidChangeConfiguration: () => ({ dispose: () => undefined }),
+  applyEdit: async () => true,
+}
+
+export class Position {
+  constructor(
+    readonly line: number,
+    readonly character: number,
+  ) {}
+}
+
+export class Range {
+  constructor(
+    readonly startLine: number,
+    readonly startCharacter: number,
+    readonly endLine: number,
+    readonly endCharacter: number,
+  ) {}
+}
+
+export const CompletionItemKind = { Keyword: 13, Module: 8, Struct: 21, Field: 4 } as const
+
+export class CompletionItem {
+  detail = ''
+  range: unknown
+
+  constructor(
+    readonly label: string,
+    readonly kind: number,
+  ) {}
+}
+
+export class CompletionList {
+  constructor(
+    readonly items: readonly unknown[],
+    readonly isIncomplete = false,
+  ) {}
+}
+
+export class WorkspaceEdit {
+  readonly edits: { uri: unknown; range: unknown; newText: string }[] = []
+
+  replace(uri: unknown, range: unknown, newText: string): void {
+    this.edits.push({ uri, range, newText })
+  }
+}
+
+export const languages = {
+  registerCompletionItemProvider: () => ({ dispose: () => undefined }),
 }
 
 export interface MockMemento {

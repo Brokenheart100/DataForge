@@ -40,13 +40,8 @@ function displayValue(cell: CellValue): string {
         <tbody>
           <tr v-for="(row, rowIndex) in visibleRows" :key="rowIndex" class="df-body-row">
             <td class="df-row px-2 py-1 text-right text-[10px] text-muted tabular-nums">{{ rowIndex + 1 }}</td>
-            <td
-              v-for="(cell, columnIndex) in row"
-              :key="columnIndex"
-              class="df-row df-code max-w-[36rem] truncate px-2 py-1"
-              :title="displayValue(cell)"
-              :class="{ 'text-muted italic': cell === null }"
-            >
+            <td v-for="(cell, columnIndex) in row" :key="columnIndex" class="df-row df-code max-w-xl truncate px-2 py-1"
+              :title="displayValue(cell)" :class="{ 'text-muted italic': cell === null }">
               {{ displayValue(cell) }}
             </td>
           </tr>

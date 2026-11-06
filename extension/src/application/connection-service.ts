@@ -4,7 +4,7 @@ import type { ConnectionDraft, ConnectionState, ConnectionSummary, ConnectionTes
 
 import { createProfile, sameProfileName } from '../domain/connection'
 import type { ConnectionConfig, ConnectionProfile } from '../domain/connection'
-import type { DatabaseDriver } from '../domain/driver'
+import type { DatabaseDriver, DataEditingDriver } from '../domain/driver'
 import { DataForgeError, wrapError } from '../domain/errors'
 import { Emitter } from './ports'
 import type { ConnectionStore, DriverFactory, Logger, SecretStore } from './ports'
@@ -20,6 +20,19 @@ interface RuntimeState {
   state: ConnectionState
   serverVersion?: string
   lastError?: string
+}
+
+/**
+ * Editing is a capability, not a property of every driver: a future MySQL or
+ * SQLite adapter may ship read-only first and grow the writes later.
+ */
+export function isDataEditingDriver(driver: DatabaseDriver): driver is DataEditingDriver {
+  const candidate = driver as Partial<DataEditingDriver>
+  return (
+    typeof candidate.selectPage === 'function' &&
+    typeof candidate.applyMutations === 'function' &&
+    typeof candidate.countRows === 'function'
+  )
 }
 
 /**
@@ -181,6 +194,15 @@ export class ConnectionService {
     const profile = this.profiles.get(connectionId)
     if (!profile) throw new DataForgeError('not_found', 'That connection no longer exists.')
     throw new DataForgeError('connection_failed', `Connection "${profile.name}" is not connected.`)
+  }
+
+  /** Same as {@link requireDriver}, but the driver must support browsing and writing rows. */
+  requireEditingDriver(connectionId: string): DataEditingDriver {
+    const driver = this.requireDriver(connectionId)
+    if (!isDataEditingDriver(driver)) {
+      throw new DataForgeError('internal', 'This connection does not support data editing yet.')
+    }
+    return driver
   }
 
   isConnected(connectionId: string): boolean {

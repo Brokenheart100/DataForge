@@ -3,7 +3,15 @@ import { z } from 'zod'
 import type {
   ConnectionDraft,
   ConnectionTestTarget,
+  DataCommitInput,
+  DataCommitResult,
+  DataExportDto,
+  DataExportInput,
+  DataPageDto,
+  DataPageInput,
+  ExplainInput,
   QueryInput,
+  SessionStateDto,
   RequestOutput,
   RequestType,
   ResponseError,
@@ -13,7 +21,11 @@ import { REQUEST_TYPES } from '@shared/protocol'
 
 import type { Logger } from '../application/ports'
 import type { ConnectionService } from '../application/connection-service'
+import type { CommitResult, DataPage, DataEditorService } from '../application/data-editor-service'
+import type { ExportService } from '../application/export-service'
 import type { QueryService } from '../application/query-service'
+import { toQueryResultDto } from '../application/query-service'
+import type { QuerySessionService } from '../application/query-session-service'
 import { DataForgeError, toErrorDto } from '../domain/errors'
 
 const sslSchema = z.enum(['disable', 'require', 'verify-full'])
@@ -30,6 +42,45 @@ const draftSchema = z.object({
 })
 
 const idSchema = z.object({ id: z.string().min(1).max(128) })
+
+const cellValueSchema = z.union([z.string().max(1_000_000), z.number(), z.boolean(), z.null()])
+
+const valuesSchema = z.record(z.string().min(1).max(63), cellValueSchema)
+
+const sortSchema = z.object({
+  column: z.string().min(1).max(63),
+  direction: z.enum(['asc', 'desc']),
+})
+
+const dataPageSchema = z.object({
+  connectionId: z.string().min(1).max(128),
+  schema: z.string().min(1).max(63),
+  relation: z.string().min(1).max(63),
+  limit: z.number().int().min(1).max(1_000),
+  offset: z.number().int().min(0).max(1_000_000),
+  orderBy: z.array(sortSchema).max(5),
+})
+
+const rowChangeSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('insert'), values: valuesSchema }),
+  z.object({ kind: z.literal('update'), identity: valuesSchema, values: valuesSchema }),
+  z.object({ kind: z.literal('delete'), identity: valuesSchema }),
+])
+
+const dataCommitSchema = z.object({
+  connectionId: z.string().min(1).max(128),
+  schema: z.string().min(1).max(63),
+  relation: z.string().min(1).max(63),
+  changes: z
+    .array(
+      z.object({
+        rowId: z.string().min(1).max(128),
+        version: z.string().max(64).nullable(),
+        change: rowChangeSchema,
+      }),
+    )
+    .max(500),
+})
 
 /** Per-request payload schemas: every message from the webview is untrusted. */
 const payloadSchemas: Readonly<Record<RequestType, z.ZodType>> = {
@@ -50,6 +101,26 @@ const payloadSchemas: Readonly<Record<RequestType, z.ZodType>> = {
     maxRows: z.number().int().min(1).max(10_000),
   }),
   'query.cancel': z.object({ targetRequestId: z.string().min(1).max(128) }),
+  'query.explain': z.object({
+    connectionId: z.string().min(1).max(128),
+    sql: z.string().min(1).max(1_000_000),
+  }),
+  'transaction.begin': z.object({ connectionId: z.string().min(1).max(128) }),
+  'transaction.commit': z.object({ connectionId: z.string().min(1).max(128) }),
+  'transaction.rollback': z.object({ connectionId: z.string().min(1).max(128) }),
+  'transaction.run': z.object({
+    connectionId: z.string().min(1).max(128),
+    sql: z.string().min(1).max(1_000_000),
+    maxRows: z.number().int().min(1).max(10_000),
+  }),
+  'data.page': dataPageSchema,
+  'data.commit': dataCommitSchema,
+  'data.export': z.object({
+    connectionId: z.string().min(1).max(128),
+    schema: z.string().min(1).max(63),
+    relation: z.string().min(1).max(63),
+  }),
+  'data.cancel': z.object({ targetRequestId: z.string().min(1).max(128) }),
   'workbench.ready': z.null(),
 }
 
@@ -63,7 +134,13 @@ const envelopeSchema = z.object({
 export interface MessageRouterDeps {
   readonly connections: ConnectionService
   readonly queries: QueryService
+  readonly dataEditor: DataEditorService
+  readonly exporter: ExportService
+  /** Shows the host save dialog; the webview never picks a path itself. */
+  readonly pickExportPath: (suggestedName: string) => Promise<string | undefined>
   readonly logger: Logger
+  /** Optional so router tests can run without a transaction service. */
+  readonly sessions?: QuerySessionService
 }
 
 function formatIssues(error: z.ZodError): string {
@@ -71,6 +148,11 @@ function formatIssues(error: z.ZodError): string {
     .slice(0, 5)
     .map((issue) => `${issue.path.length > 0 ? issue.path.join('.') : 'payload'}: ${issue.message}`)
     .join('; ')
+}
+
+function sessionService(deps: MessageRouterDeps): QuerySessionService {
+  if (!deps.sessions) throw new DataForgeError('internal', 'Transactions are not available in this build.')
+  return deps.sessions
 }
 
 function okResponse<T extends RequestType>(id: string, type: T, data: RequestOutput<T>): WebviewResponse {
@@ -81,6 +163,35 @@ function okResponse<T extends RequestType>(id: string, type: T, data: RequestOut
 
 function errorResponse(id: string, error: unknown): ResponseError {
   return { kind: 'response', id, ok: false, error: toErrorDto(error) }
+}
+
+function toPageDto(page: DataPage): DataPageDto {
+  return {
+    columns: page.columns.map((column) => ({
+      name: column.name,
+      dataType: column.dataType,
+      nullable: column.nullable,
+      isPrimaryKey: column.isPrimaryKey,
+      defaultValue: column.defaultValue,
+      ordinal: column.ordinal,
+    })),
+    primaryKey: [...page.primaryKey],
+    rows: page.rows.map((row) => ({ values: [...row.values], identity: { ...row.identity }, version: row.version })),
+    totalRows: page.totalRows,
+    limit: page.limit,
+    offset: page.offset,
+    editable: page.editable,
+    ...(page.readOnlyReason === undefined ? {} : { readOnlyReason: page.readOnlyReason }),
+  }
+}
+
+function toCommitResult(result: CommitResult): DataCommitResult {
+  return {
+    inserted: result.inserted,
+    updated: result.updated,
+    deleted: result.deleted,
+    returnedKeys: result.returnedKeys.map((keys) => (keys === null ? null : [...keys])),
+  }
 }
 
 /**
@@ -117,7 +228,7 @@ export class MessageRouter {
 
   /** Narrowed dispatch: each branch receives the payload validated for its type. */
   private async dispatch(type: RequestType, payload: unknown, requestId: string): Promise<RequestOutput<RequestType>> {
-    const { connections, queries } = this.deps
+    const { connections, queries, dataEditor } = this.deps
     switch (type) {
       case 'connection.list':
         return connections.list()
@@ -142,6 +253,55 @@ export class MessageRouter {
       case 'query.cancel':
         queries.cancel(as<{ targetRequestId: string }>(payload).targetRequestId)
         return null
+      case 'query.explain':
+        return queries.explain(requestId, as<ExplainInput>(payload))
+      case 'transaction.begin': {
+        const { connectionId } = as<{ connectionId: string }>(payload)
+        await sessionService(this.deps).begin(connectionId)
+        return { connectionId, active: true } satisfies SessionStateDto
+      }
+      case 'transaction.commit': {
+        const { connectionId } = as<{ connectionId: string }>(payload)
+        await sessionService(this.deps).commit(connectionId)
+        return { connectionId, active: false } satisfies SessionStateDto
+      }
+      case 'transaction.rollback': {
+        const { connectionId } = as<{ connectionId: string }>(payload)
+        await sessionService(this.deps).rollback(connectionId)
+        return { connectionId, active: false } satisfies SessionStateDto
+      }
+      case 'transaction.run': {
+        const input = as<QueryInput>(payload)
+        const result = await sessionService(this.deps).run(input.connectionId, input.sql, input.maxRows)
+        return toQueryResultDto(result)
+      }
+      case 'data.page':
+        return toPageDto(await dataEditor.loadPage(as<DataPageInput>(payload)))
+      case 'data.commit': {
+        const input = as<DataCommitInput>(payload)
+        const result = await dataEditor.commit({
+          connectionId: input.connectionId,
+          schema: input.schema,
+          relation: input.relation,
+          rows: input.changes,
+          requestId,
+        })
+        return toCommitResult(result)
+      }
+      case 'data.export': {
+        const input = as<DataExportInput>(payload)
+        const targetPath = await this.deps.pickExportPath(`${input.relation}.csv`)
+        if (!targetPath) return { saved: false } satisfies DataExportDto
+        const result = await this.deps.exporter.exportTable({ ...input, targetPath, requestId })
+        return { saved: true, path: result.path, rowCount: result.rowCount } satisfies DataExportDto
+      }
+      case 'data.cancel': {
+        const { targetRequestId } = as<{ targetRequestId: string }>(payload)
+        if (!dataEditor.cancel(targetRequestId) && !this.deps.exporter.cancel(targetRequestId)) {
+          throw new DataForgeError('not_found', 'That operation is not running any more.')
+        }
+        return null
+      }
       case 'workbench.ready':
         return null
     }

@@ -22,7 +22,12 @@ declare global {
 }
 
 export class HostRequestError extends Error {
-  constructor(readonly code: ErrorCode, message: string) {
+  constructor(
+    readonly code: ErrorCode,
+    message: string,
+    /** Identity fragments (`id=42`) of rows changed elsewhere; conflict only. */
+    readonly conflictingKeys: readonly string[] = [],
+  ) {
     super(message)
     this.name = 'HostRequestError'
   }
@@ -99,6 +104,21 @@ class DemoTransport implements Transport {
   subscribe(listener: (message: unknown) => void): void {
     this.listener = listener
     this.emit({ kind: 'ready', payload: this.bootstrap() })
+    // Give the demo a table to look at: the browser stand-in has no explorer
+    // tree, so it opens `public.orders` a moment after the handshake.
+    setTimeout(() => {
+      this.emit({
+        kind: 'event',
+        payload: {
+          type: 'editor.prefill',
+          payload: {
+            sql: 'select * from public.orders limit 100;',
+            connectionId: 'demo-0',
+            target: { connectionId: 'demo-0', schema: 'public', relation: 'orders' },
+          },
+        },
+      })
+    }, 400)
   }
 
   persist(state: unknown): void {
@@ -121,7 +141,8 @@ class DemoTransport implements Transport {
         user: draft.user,
         ssl: draft.ssl,
         readOnly: draft.readOnly,
-        state: 'disconnected',
+        state: 'connected',
+        serverVersion: 'PostgreSQL 17.3 (demo)',
       })),
       prefs: { maxRows: 500, statementTimeoutMs: 30_000, connectTimeoutMs: 10_000 },
     }
@@ -152,6 +173,7 @@ class DemoTransport implements Transport {
         succeed({ serverVersion: 'PostgreSQL 16.4 (demo)', database: 'analytics', user: 'postgres', latencyMs: 42 })
         return
       case 'query.execute':
+      case 'transaction.run':
         succeed({
           columns: [
             { name: 'id', dataType: 'int4' },
@@ -170,6 +192,65 @@ class DemoTransport implements Transport {
         return
       case 'query.cancel':
         succeed(null)
+        return
+      case 'transaction.begin':
+      case 'transaction.commit':
+      case 'transaction.rollback': {
+        const payload = request.payload as { connectionId?: string }
+        succeed({ connectionId: payload.connectionId ?? 'demo-0', active: request.type === 'transaction.begin' })
+        return
+      }
+      case 'query.explain':
+        succeed({
+          plan: JSON.stringify(
+            [
+              {
+                Plan: {
+                  'Node Type': 'Seq Scan',
+                  'Relation Name': 'orders',
+                  'Startup Cost': 0,
+                  'Total Cost': 24.5,
+                  'Plan Rows': 24,
+                  'Plan Width': 42,
+                },
+              },
+            ],
+            null,
+            2,
+          ),
+          durationMs: 4,
+        })
+        return
+      case 'data.page':
+        succeed({
+          columns: [
+            { name: 'id', dataType: 'int4', nullable: false, isPrimaryKey: true, defaultValue: null, ordinal: 1 },
+            { name: 'customer', dataType: 'text', nullable: false, isPrimaryKey: false, defaultValue: null, ordinal: 2 },
+            { name: 'total', dataType: 'numeric', nullable: true, isPrimaryKey: false, defaultValue: null, ordinal: 3 },
+            { name: 'created_at', dataType: 'timestamptz', nullable: false, isPrimaryKey: false, defaultValue: null, ordinal: 4 },
+          ],
+          primaryKey: ['id'],
+          rows: Array.from({ length: 24 }, (_, index) => ({
+            values: [index + 1, `Customer ${index + 1}`, (index + 1) * 12.5, '2026-11-06T09:12:00.000Z'],
+            identity: { id: index + 1 },
+            version: String(1000 + index),
+          })),
+          totalRows: 24,
+          limit: 200,
+          offset: 0,
+          editable: true,
+        })
+        return
+      case 'data.commit':
+        succeed({
+          inserted: 0,
+          updated: 0,
+          deleted: 0,
+          returnedKeys: [],
+        })
+        return
+      case 'data.export':
+        succeed({ saved: true, path: '~/Downloads/orders.csv', rowCount: 24 })
         return
       default:
         fail({ code: 'invalid_request', message: `The demo host does not implement ${request.type}.` })
@@ -260,7 +341,7 @@ class HostBridge {
       pending.resolve(response.data)
       return
     }
-    pending.reject(new HostRequestError(response.error.code, response.error.message))
+    pending.reject(new HostRequestError(response.error.code, response.error.message, response.error.conflictingKeys))
   }
 }
 

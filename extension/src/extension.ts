@@ -1,15 +1,25 @@
+import * as os from 'node:os'
+
 import * as vscode from 'vscode'
 
 import { ConnectionService } from './application/connection-service'
+import { DataEditorService } from './application/data-editor-service'
+import { ExportService } from './application/export-service'
+import { FormatService } from './application/format-service'
+import { HistoryService } from './application/history-service'
 import type { Logger } from './application/ports'
 import { QueryService } from './application/query-service'
+import { QuerySessionService } from './application/query-session-service'
 import { SchemaService } from './application/schema-service'
 import type { ConnectionConfig } from './domain/connection'
 import { DataForgeError } from './domain/errors'
 import { PostgresDriver } from './infrastructure/postgres/postgres-driver'
 import { MementoConnectionStore } from './infrastructure/persistence/connection-store'
+import { MementoHistoryStore } from './infrastructure/persistence/history-store'
 import { VsCodeSecretStore } from './infrastructure/security/secret-store'
 import { ConnectionsTreeProvider } from './presentation/connections-tree'
+import { createSqlCompletionProvider } from './presentation/completion'
+import { createQueryDiagnostics } from './presentation/diagnostics'
 import { OutputChannelLogger } from './presentation/logging'
 import { MessageRouter } from './presentation/message-router'
 import { WorkbenchPanel } from './presentation/workbench-panel'
@@ -27,13 +37,49 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   await connections.initialize()
 
+  const history = new HistoryService({ store: new MementoHistoryStore(context.globalState), logger })
+  const timing = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99)
+  timing.command = 'dataforge.openWorkbench'
+  timing.tooltip = 'Duration of the last DataForge query'
+  let lastConnectionId: string | undefined
+
   const queries = new QueryService(connections, {
     logger,
     defaultMaxRows: vscode.workspace.getConfiguration('dataforge').get<number>('maxRows', 500),
+    history,
+    onExecuted: (info) => {
+      lastConnectionId = info.connectionId
+      createQueryDiagnostics({
+        statusBar: timing,
+        logger,
+        slowQueryMs: () => vscode.workspace.getConfiguration('dataforge').get<number>('slowQueryMs', 1_000),
+      })(info)
+    },
   })
   const schemas = new SchemaService(connections, logger)
-  const router = new MessageRouter({ connections, queries, logger })
+  const sessions = new QuerySessionService({
+    connections,
+    logger,
+    defaultMaxRows: vscode.workspace.getConfiguration('dataforge').get<number>('maxRows', 500),
+  })
+  const dataEditor = new DataEditorService({ connections, schemas, logger })
+  const exporter = new ExportService({ connections, schemas, logger })
+  const router = new MessageRouter({
+    connections,
+    queries,
+    dataEditor,
+    exporter,
+    pickExportPath: (suggestedName) => pickExportPath(suggestedName),
+    logger,
+    sessions,
+  })
   const tree = new ConnectionsTreeProvider(connections, schemas, logger)
+  const formatter = new FormatService()
+  const completion = createSqlCompletionProvider({
+    schemas,
+    logger,
+    activeConnectionId: () => (lastConnectionId && connections.isConnected(lastConnectionId) ? lastConnectionId : undefined),
+  })
   const treeView = vscode.window.createTreeView('dataforge.connections', {
     treeDataProvider: tree,
     showCollapseAll: true,
@@ -41,11 +87,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   let panel: WorkbenchPanel | undefined
   const openWorkbench = (argument?: unknown): WorkbenchPanel => {
-    panel = WorkbenchPanel.open(context, { connections, router, logger })
+    panel = WorkbenchPanel.open(context, {
+      connections,
+      router,
+      logger,
+      onClose: () => void sessions.rollbackAll(),
+    })
     const target = tableTargetOf(argument)
     if (target) {
       const sql = `select * from ${quoteIdentifier(target.schema)}.${quoteIdentifier(target.relation)} limit 100;`
-      panel.prefill(sql, target.connectionId)
+      panel.prefill(sql, { connectionId: target.connectionId, target })
     }
     return panel
   }
@@ -129,12 +180,66 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         tree.refresh()
       })
     }),
+
+    vscode.commands.registerCommand('dataforge.formatSql', async () => {
+      await guard('Format SQL', async () => {
+        const editor = vscode.window.activeTextEditor
+        if (!editor) throw new DataForgeError('invalid_request', 'Open a SQL document before formatting.')
+        const selection = editor.selection
+        const range: vscode.Range = selection.isEmpty ? fullDocumentRange(editor.document) : selection
+        const original = editor.document.getText(range)
+        const formatted = formatter.format(original)
+        if (formatted === original) return
+        const edit = new vscode.WorkspaceEdit()
+        edit.replace(editor.document.uri, range, formatted)
+        if (!(await vscode.workspace.applyEdit(edit))) {
+          throw new DataForgeError('internal', 'The editor rejected the formatting edit.')
+        }
+      })
+    }),
+
+    vscode.languages.registerCompletionItemProvider('sql', completion, '.', ' '),
+
+    vscode.commands.registerCommand('dataforge.showHistory', async () => {
+      const entries = await history.list()
+      if (entries.length === 0) {
+        await vscode.window.showInformationMessage('DataForge: no queries have been run yet.')
+        return
+      }
+      const items = entries.map((entry) => ({
+        label: `${entry.success ? '$(check)' : '$(warning)'} ${collapse(entry.sql)}`,
+        description: `${entry.connectionName} · ${entry.durationMs} ms · ${new Date(entry.executedAt).toLocaleString()}`,
+        detail: entry.sql.slice(0, 500),
+        entry,
+      }))
+      const picked = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Query history — pick a statement to load',
+        matchOnDescription: true,
+      })
+      if (!picked) return
+      const editor: vscode.TextEditor | undefined = vscode.window.activeTextEditor
+      if (editor) {
+        await editor.edit((builder) => builder.replace(fullDocumentRange(editor.document), picked.entry.sql))
+        return
+      }
+      openWorkbench().prefill(picked.entry.sql, { connectionId: picked.entry.connectionId })
+    }),
+
+    vscode.commands.registerCommand('dataforge.clearHistory', async () => {
+      const confirmed = await vscode.window.showWarningMessage('Clear the DataForge query history?', { modal: true }, 'Clear')
+      if (confirmed !== 'Clear') return
+      await guard('Clear history', async () => {
+        await history.clear()
+      })
+    }),
   ]
 
   const changeSubscription = connections.onDidChange((list) => {
     refreshStatus()
     for (const summary of list) {
-      if (summary.state !== 'connected') schemas.invalidate(summary.id)
+      if (summary.state === 'connected') continue
+      schemas.invalidate(summary.id)
+      if (sessions.isOpen(summary.id)) void sessions.rollback(summary.id).catch((error: unknown) => logger.warn(String(error)))
     }
   })
 
@@ -145,9 +250,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     tree,
     treeView,
     status,
+    timing,
     { dispose: changeSubscription.dispose },
     { dispose: () => void connections.dispose() },
     { dispose: () => void queries.dispose() },
+    { dispose: () => void sessions.rollbackAll() },
     { dispose: () => panel?.dispose() },
     ...registrations,
   )
@@ -166,6 +273,27 @@ function createDriver(config: ConnectionConfig, logger: Logger): PostgresDriver 
     statementTimeoutMs: settings.get<number>('statementTimeoutMs', 30_000),
     onBackgroundError: (message) => logger.warn(message),
   })
+}
+
+async function pickExportPath(suggestedName: string): Promise<string | undefined> {
+  const defaultUri = vscode.Uri.joinPath(vscode.Uri.file(os.homedir()), suggestedName)
+  const target = await vscode.window.showSaveDialog({
+    title: 'Export table as CSV',
+    saveLabel: 'Export',
+    defaultUri,
+    filters: { 'CSV file': ['csv'] },
+  })
+  return target?.fsPath
+}
+
+function fullDocumentRange(document: vscode.TextDocument): vscode.Range {
+  const lastLine = Math.max(0, document.lineCount - 1)
+  return new vscode.Range(0, 0, lastLine, document.lineAt(lastLine).text.length)
+}
+
+/** One-line preview of a statement for the history picker. */
+function collapse(sql: string): string {
+  return sql.replace(/\s+/g, ' ').trim().slice(0, 120)
 }
 
 /** Tree commands receive the tree element, so accept both shapes. */

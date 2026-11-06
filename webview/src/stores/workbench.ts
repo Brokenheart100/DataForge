@@ -8,7 +8,9 @@ import type {
   ConnectionTestResult,
   ConnectionTestTarget,
   ErrorDto,
+  ExplainResultDto,
   QueryResultDto,
+  RelationTarget,
 } from '@shared/protocol'
 
 import { HostRequestError, host } from '@/lib/host'
@@ -40,13 +42,23 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const lastTest = ref<ConnectionTestResult>()
   const toasts = ref<Toast[]>([])
   const initialized = ref(false)
+  /** Set by an `editor.prefill` event that carries a relation to edit. */
+  const pendingRelation = ref<RelationTarget | null>(null)
 
   let toastSequence = 0
 
   const activeConnection = computed(() => connections.value.find((item) => item.id === activeConnectionId.value))
   const connectedCount = computed(() => connections.value.filter((item) => item.state === 'connected').length)
 
+  const transactionConnectionId = ref<string>()
+  const transactionOpen = computed(() => transactionConnectionId.value !== undefined)
+  const transactionBusy = ref(false)
+
   function setActiveConnection(id: string): void {
+    if (transactionOpen.value && transactionConnectionId.value !== id) {
+      pushToast('warn', 'Commit or roll back the open transaction before switching connections.')
+      return
+    }
     activeConnectionId.value = id
   }
 
@@ -85,7 +97,12 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         if (event.payload.connectionId && connections.value.some((item) => item.id === event.payload.connectionId)) {
           activeConnectionId.value = event.payload.connectionId
         }
-        pushToast('info', 'Loaded the selected relation into the editor.')
+        if (event.payload.target) {
+          pendingRelation.value = event.payload.target
+          pushToast('info', `Opened ${event.payload.target.schema}.${event.payload.target.relation}.`)
+        } else {
+          pushToast('info', 'Loaded the selected relation into the editor.')
+        }
       } else {
         pushToast(event.payload.level, event.payload.message)
       }
@@ -150,7 +167,49 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   async function disconnect(id: string): Promise<void> {
     const summary = await host.request('connection.disconnect', { id })
+    if (transactionConnectionId.value === id) transactionConnectionId.value = undefined
     upsert(summary)
+  }
+
+  async function beginTransaction(): Promise<void> {
+    const connectionId = activeConnectionId.value
+    if (!connectionId) {
+      pushToast('warn', 'Select a connection before starting a transaction.')
+      return
+    }
+    if (activeConnection.value?.state !== 'connected') {
+      pushToast('warn', 'Connect to the database before starting a transaction.')
+      return
+    }
+    transactionBusy.value = true
+    try {
+      await host.request('transaction.begin', { connectionId })
+      transactionConnectionId.value = connectionId
+      pushToast('info', 'Transaction started. Nothing is saved until you commit.')
+    } catch (caught) {
+      const dto = describeError(caught)
+      error.value = dto
+      pushToast('error', dto.message)
+    } finally {
+      transactionBusy.value = false
+    }
+  }
+
+  async function finishTransaction(kind: 'commit' | 'rollback'): Promise<void> {
+    const connectionId = transactionConnectionId.value
+    if (!connectionId) return
+    transactionBusy.value = true
+    try {
+      await host.request(kind === 'commit' ? 'transaction.commit' : 'transaction.rollback', { connectionId })
+      transactionConnectionId.value = undefined
+      pushToast('info', kind === 'commit' ? 'Transaction committed.' : 'Transaction rolled back.')
+    } catch (caught) {
+      const dto = describeError(caught)
+      error.value = dto
+      pushToast('error', dto.message)
+    } finally {
+      transactionBusy.value = false
+    }
   }
 
   async function runQuery(selection?: string): Promise<void> {
@@ -172,8 +231,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     error.value = undefined
 
     try {
+      const inTransaction = transactionConnectionId.value === connectionId
       result.value = await host.request(
-        'query.execute',
+        inTransaction ? 'transaction.run' : 'query.execute',
         { connectionId, sql: statement, maxRows: prefs.value.maxRows },
         requestId,
       )
@@ -201,9 +261,41 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }
   }
 
+  const explaining = ref(false)
+  const explainResult = ref<ExplainResultDto>()
+
+  async function explainSql(selection?: string): Promise<void> {
+    const connectionId = activeConnectionId.value
+    if (!connectionId) {
+      error.value = { code: 'invalid_request', message: 'Select a connection before explaining a query.' }
+      return
+    }
+    const statement = selection && selection.trim() ? selection : sql.value
+    if (!statement.trim()) {
+      error.value = { code: 'invalid_request', message: 'The SQL buffer is empty.' }
+      return
+    }
+    explaining.value = true
+    error.value = undefined
+    try {
+      explainResult.value = await host.request('query.explain', { connectionId, sql: statement }, crypto.randomUUID())
+    } catch (caught) {
+      const dto = describeError(caught)
+      error.value = dto
+      pushToast('error', dto.message)
+    } finally {
+      explaining.value = false
+    }
+  }
+
   function clearResult(): void {
     result.value = undefined
+    explainResult.value = undefined
     error.value = undefined
+  }
+
+  function clearPendingRelation(): void {
+    pendingRelation.value = null
   }
 
   return {
@@ -216,9 +308,18 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     result,
     error,
     running,
+    explaining,
+    explainResult,
+    transactionOpen,
+    transactionBusy,
+    transactionConnectionId,
+    beginTransaction,
+    commitTransaction: () => finishTransaction('commit'),
+    rollbackTransaction: () => finishTransaction('rollback'),
     testing,
     lastTest,
     toasts,
+    pendingRelation,
     initialize,
     refresh,
     setActiveConnection,
@@ -229,8 +330,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     connect,
     disconnect,
     runQuery,
+    explainSql,
     cancelQuery,
     clearResult,
+    clearPendingRelation,
     pushToast,
   }
 })

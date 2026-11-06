@@ -71,6 +71,22 @@
         "title": "Delete Connection",
         "category": "DataForge",
         "icon": "$(trash)"
+      },
+      {
+        "command": "dataforge.formatSql",
+        "title": "Format SQL",
+        "category": "DataForge"
+      },
+      {
+        "command": "dataforge.showHistory",
+        "title": "Query History",
+        "category": "DataForge",
+        "icon": "$(history)"
+      },
+      {
+        "command": "dataforge.clearHistory",
+        "title": "Clear Query History",
+        "category": "DataForge"
       }
     ],
     "menus": {
@@ -126,6 +142,12 @@
           "default": 30000,
           "minimum": 0,
           "description": "Server-side statement timeout per query (0 disables the timeout)."
+        },
+        "dataforge.slowQueryMs": {
+          "type": "number",
+          "default": 1000,
+          "minimum": 0,
+          "description": "Queries at or above this duration are logged as slow and marked in the status bar."
         }
       }
     }
@@ -139,6 +161,8 @@
   },
   "dependencies": {
     "pg": "^8.23.1",
+    "pg-cursor": "^2.22.1",
+    "sql-formatter": "^15.9.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

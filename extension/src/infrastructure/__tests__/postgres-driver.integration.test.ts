@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import type { ConnectionConfig } from '../../domain/connection'
+import type { DriverPageInput } from '../../domain/driver'
 import { PostgresDriver } from '../postgres/postgres-driver'
 
 /**
@@ -99,5 +100,136 @@ suite('PostgresDriver against a live server', () => {
   it('still answers queries after a cancellation', async () => {
     const result = await driver.query({ sql: 'select 41 + 1 as answer', maxRows: 1 })
     expect(result.rows[0]).toEqual([42])
+  })
+
+  function pageInput(overrides: Partial<DriverPageInput> = {}): DriverPageInput {
+    return {
+      schema: 'public',
+      relation: table,
+      columns: ['id', 'name'],
+      identityColumns: ['id'],
+      orderBy: [{ column: 'id', direction: 'asc' }],
+      limit: 10,
+      offset: 0,
+      withVersion: true,
+      ...overrides,
+    }
+  }
+
+  it('pages rows with primary-key identity and an xmin version', async () => {
+    const page = await driver.selectPage(pageInput({ limit: 2 }))
+    expect(page.totalRows).toBe(3)
+    expect(page.rows).toHaveLength(2)
+    expect(page.rows[0]?.values).toEqual([1, 'one'])
+    expect(page.rows[0]?.identity).toEqual({ id: 1 })
+    expect(page.rows[0]?.version).toMatch(/^\d+$/)
+  })
+
+  it('applies insert, update and delete in one transaction', async () => {
+    const inserted = await driver.applyMutations({
+      schema: 'public',
+      relation: table,
+      mutations: [
+        {
+          kind: 'insert',
+          values: [{ column: 'name', value: 'four' }],
+          identity: [],
+          version: null,
+          returning: ['id', 'name'],
+        },
+      ],
+    })
+    expect(inserted[0]?.rowCount).toBe(1)
+    expect(inserted[0]?.returned?.[1]).toBe('four')
+    const id = inserted[0]?.returned?.[0]
+    if (typeof id !== 'number') throw new Error('expected the inserted primary key')
+
+    const updated = await driver.applyMutations({
+      schema: 'public',
+      relation: table,
+      mutations: [
+        {
+          kind: 'update',
+          values: [{ column: 'name', value: 'four-edited' }],
+          identity: [{ column: 'id', value: id }],
+          version: null,
+          returning: ['name'],
+        },
+      ],
+    })
+    expect(updated[0]?.rowCount).toBe(1)
+    expect(updated[0]?.returned).toEqual(['four-edited'])
+
+    const deleted = await driver.applyMutations({
+      schema: 'public',
+      relation: table,
+      mutations: [{ kind: 'delete', values: [], identity: [{ column: 'id', value: id }], version: null, returning: [] }],
+    })
+    expect(deleted[0]?.rowCount).toBe(1)
+  })
+
+  it('rolls back and reports a conflict when a row changed meanwhile', async () => {
+    const page = await driver.selectPage(pageInput({ limit: 100 }))
+    const target = page.rows.find((row) => row.identity['id'] === 1)
+    const other = page.rows.find((row) => row.identity['id'] === 3)
+    if (!target || !other || target.version === null) throw new Error('expected the seeded rows with versions')
+
+    const first = await driver.applyMutations({
+      schema: 'public',
+      relation: table,
+      mutations: [
+        {
+          kind: 'update',
+          values: [{ column: 'name', value: 'one-edited' }],
+          identity: [{ column: 'id', value: 1 }],
+          version: target.version,
+          returning: ['name'],
+        },
+      ],
+    })
+    expect(first[0]?.rowCount).toBe(1)
+
+    await expect(
+      driver.applyMutations({
+        schema: 'public',
+        relation: table,
+        mutations: [
+          {
+            kind: 'update',
+            values: [{ column: 'name', value: 'three-edited' }],
+            identity: [{ column: 'id', value: 3 }],
+            version: other.version,
+            returning: ['name'],
+          },
+          {
+            kind: 'update',
+            values: [{ column: 'name', value: 'stale' }],
+            identity: [{ column: 'id', value: 1 }],
+            version: target.version,
+            returning: ['name'],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'conflict', keys: ['id=1'] })
+
+    const reread = await driver.selectPage(pageInput({ limit: 100 }))
+    expect(reread.rows.find((row) => row.identity['id'] === 1)?.values[1]).toBe('one-edited')
+    expect(reread.rows.find((row) => row.identity['id'] === 3)?.values[1]).toBe('three')
+  })
+
+  it('rolls the whole batch back when one statement fails', async () => {
+    await expect(
+      driver.applyMutations({
+        schema: 'public',
+        relation: table,
+        mutations: [
+          { kind: 'insert', values: [{ column: 'name', value: 'rollback-me' }], identity: [], version: null, returning: ['id'] },
+          { kind: 'insert', values: [{ column: 'name', value: null }], identity: [], version: null, returning: ['id'] },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'query_failed' })
+
+    const page = await driver.selectPage(pageInput({ limit: 100 }))
+    expect(page.rows.some((entry) => entry.values[1] === 'rollback-me')).toBe(false)
   })
 })

@@ -7,8 +7,11 @@ import type { ColumnInfo, DatabaseDriver, DriverQueryInput, DriverQueryResult, R
 import { DataForgeError } from '../../domain/errors'
 import { MessageRouter } from '../../presentation/message-router'
 import { ConnectionService } from '../connection-service'
+import { DataEditorService } from '../data-editor-service'
+import { ExportService } from '../export-service'
 import type { ConnectionStore, DriverFactory, Logger, SecretStore } from '../ports'
 import { QueryService } from '../query-service'
+import { SchemaService } from '../schema-service'
 
 const logger: Logger = { info: () => undefined, warn: () => undefined, error: () => undefined }
 
@@ -104,7 +107,17 @@ function createService(options: { readOnly?: boolean } = {}) {
   }
   const connections = new ConnectionService({ store, secrets, createDriver, logger })
   const queries = new QueryService(connections, { logger, defaultMaxRows: 500 })
-  const router = new MessageRouter({ connections, queries, logger })
+  const schemas = new SchemaService(connections, logger)
+  const dataEditor = new DataEditorService({ connections, schemas, logger })
+  const exporter = new ExportService({ connections, schemas, logger })
+  const router = new MessageRouter({
+    connections,
+    queries,
+    dataEditor,
+    exporter,
+    pickExportPath: async () => undefined,
+    logger,
+  })
   return { store, secrets, drivers, configs, connections, queries, router, readOnly: options.readOnly }
 }
 
@@ -200,6 +213,24 @@ describe('QueryService', () => {
 
     await expect(running).rejects.toMatchObject({ code: 'cancelled' })
     expect(harness.queries.runningCount).toBe(0)
+  })
+
+  it('explains a read-only statement through the driver', async () => {
+    const harness = await connectedService()
+
+    const result = await harness.queries.explain('explain-1', { connectionId: harness.id, sql: 'select 1' })
+
+    expect(harness.drivers[0]?.queries[0]).toBe('explain (format json) select 1')
+    expect(result.plan).toBe('42')
+  })
+
+  it('refuses to explain a write', async () => {
+    const harness = await connectedService()
+
+    await expect(
+      harness.queries.explain('explain-2', { connectionId: harness.id, sql: 'delete from public.customers' }),
+    ).rejects.toMatchObject({ code: 'invalid_request' })
+    expect(harness.drivers[0]?.queries).toEqual([])
   })
 })
 

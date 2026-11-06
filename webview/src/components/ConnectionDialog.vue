@@ -57,15 +57,15 @@ watch(
       form,
       connection
         ? {
-            name: connection.name,
-            host: connection.host,
-            port: String(connection.port),
-            database: connection.database,
-            user: connection.user,
-            password: '',
-            ssl: connection.ssl,
-            readOnly: connection.readOnly,
-          }
+          name: connection.name,
+          host: connection.host,
+          port: String(connection.port),
+          database: connection.database,
+          user: connection.user,
+          password: '',
+          ssl: connection.ssl,
+          readOnly: connection.readOnly,
+        }
         : blankForm(),
     )
   },
@@ -180,13 +180,8 @@ function close(): void {
         </label>
         <label>
           <span class="df-label">Password</span>
-          <input
-            v-model="form.password"
-            class="df-input"
-            type="password"
-            autocomplete="new-password"
-            :placeholder="connection ? 'unchanged' : ''"
-          />
+          <input v-model="form.password" class="df-input" type="password" autocomplete="new-password"
+            :placeholder="connection ? 'unchanged' : ''" />
         </label>
         <label>
           <span class="df-label">SSL</span>
@@ -197,16 +192,13 @@ function close(): void {
           </select>
         </label>
         <label class="col-span-2 flex items-center gap-2 pt-1">
-          <input v-model="form.readOnly" type="checkbox" class="size-4 accent-[var(--df-purple)]" />
+          <input v-model="form.readOnly" type="checkbox" class="size-4 accent-forge-purple" />
           <span class="text-xs">Read-only: block writes from this connection</span>
         </label>
       </div>
 
-      <p
-        v-if="message"
-        class="mt-3 border-2 px-2 py-1 text-[11px]"
-        :class="message.tone === 'ok' ? 'border-forge-mint' : 'border-forge-red'"
-      >
+      <p v-if="message" class="mt-3 border-2 px-2 py-1 text-[11px]"
+        :class="message.tone === 'ok' ? 'border-forge-mint' : 'border-forge-red'">
         {{ message.text }}
       </p>
 

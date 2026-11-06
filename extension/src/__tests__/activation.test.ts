@@ -90,7 +90,11 @@ describe('extension activation', () => {
     const prefill = panel.posted.find((message) => message.kind === 'event')
     expect(prefill?.payload).toEqual({
       type: 'editor.prefill',
-      payload: { sql: 'select * from "public"."customer""orders" limit 100;', connectionId: 'conn-1' },
+      payload: {
+        sql: 'select * from "public"."customer""orders" limit 100;',
+        connectionId: 'conn-1',
+        target: { connectionId: 'conn-1', schema: 'public', relation: 'customer"orders' },
+      },
     })
 
     context.subscriptions.forEach((item) => item.dispose())

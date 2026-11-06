@@ -1,8 +1,9 @@
-import type { QueryInput, QueryResultDto } from '@shared/protocol'
+import type { CellValue, ExplainInput, ExplainResultDto, QueryInput, QueryResultDto } from '@shared/protocol'
 
 import type { DriverQueryResult } from '../domain/driver'
 import { DataForgeError, wrapError } from '../domain/errors'
 import type { ConnectionService } from './connection-service'
+import type { HistoryRecorder } from './history-service'
 import type { Logger } from './ports'
 
 const MAX_ROWS_LIMIT = 10_000
@@ -39,9 +40,21 @@ export function isReadOnlyStatement(sql: string): boolean {
   return true
 }
 
+export interface QueryExecutionInfo {
+  readonly connectionId: string
+  readonly connectionName: string
+  readonly sql: string
+  readonly durationMs: number
+  readonly success: boolean
+  readonly rowCount: number | null
+}
+
 export interface QueryServiceOptions {
   readonly logger: Logger
   readonly defaultMaxRows: number
+  readonly history?: HistoryRecorder
+  /** Called after every statement so the host can update the status bar. */
+  readonly onExecuted?: (info: QueryExecutionInfo) => void
 }
 
 export class QueryService {
@@ -70,19 +83,76 @@ export class QueryService {
 
     const controller = new AbortController()
     this.running.set(requestId, controller)
+    const startedAt = Date.now()
     try {
       const result = await driver.query({ sql: input.sql, maxRows, signal: controller.signal })
-      return toDto(result)
+      this.report({
+        connectionId: input.connectionId,
+        connectionName: summary.name,
+        sql: input.sql,
+        durationMs: result.durationMs,
+        success: true,
+        rowCount: result.rows.length,
+      })
+      return toQueryResultDto(result)
     } catch (error) {
+      this.report({
+        connectionId: input.connectionId,
+        connectionName: summary.name,
+        sql: input.sql,
+        durationMs: Date.now() - startedAt,
+        success: false,
+        rowCount: null,
+      })
       throw wrapError('query_failed', 'Query failed', error)
     } finally {
       this.running.delete(requestId)
     }
   }
 
+  private report(info: QueryExecutionInfo): void {
+    void this.options.history?.record({ ...info, executedAt: Date.now() })
+    try {
+      this.options.onExecuted?.(info)
+    } catch (error) {
+      this.options.logger.warn(`Query timing hook failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  /**
+   * Runs `EXPLAIN (FORMAT JSON)` on a single read-only statement.
+   *
+   * The plan is returned as text: rendering PostgreSQL's JSON plan tree is a UI
+   * concern the webview does not need (and the JSON is the stable contract).
+   */
+  async explain(requestId: string, input: ExplainInput): Promise<ExplainResultDto> {
+    if (this.running.has(requestId)) {
+      throw new DataForgeError('invalid_request', 'A query with this request id is already running.')
+    }
+    if (!isReadOnlyStatement(input.sql)) {
+      throw new DataForgeError('invalid_request', 'EXPLAIN here accepts one read-only statement. Run EXPLAIN ANALYZE in the SQL editor for writes.')
+    }
+
+    const driver = this.connections.requireDriver(input.connectionId)
+    const controller = new AbortController()
+    this.running.set(requestId, controller)
+    const startedAt = Date.now()
+    try {
+      const result = await driver.query({
+        sql: `explain (format json) ${input.sql}`,
+        maxRows: 1,
+        signal: controller.signal,
+      })
+      return { plan: prettyPlan(result.rows[0]?.[0]), durationMs: Date.now() - startedAt }
+    } catch (error) {
+      throw wrapError('query_failed', 'EXPLAIN failed', error)
+    } finally {
+      this.running.delete(requestId)
+    }
+  }
+
   /** Aborts a running request; the driver stops it server-side. */
-  cancel(targetRequestId: string): void {
-    const controller = this.running.get(targetRequestId)
+  cancel(targetRequestId: string): void {    const controller = this.running.get(targetRequestId)
     if (!controller) throw new DataForgeError('not_found', 'That query is not running any more.')
     this.options.logger.info(`Cancelling query ${targetRequestId}`)
     controller.abort()
@@ -104,8 +174,21 @@ export function clampMaxRows(requested: unknown, fallback: number): number {
   return Math.min(value, MAX_ROWS_LIMIT)
 }
 
-function toDto(result: DriverQueryResult): QueryResultDto {
-  return {
+/** EXPLAIN output arrives as parsed JSON; render it as readable text. */
+function prettyPlan(value: CellValue | undefined): string {
+  if (value === undefined || value === null) return '[]'
+  if (typeof value === 'string') {
+    try {
+      return JSON.stringify(JSON.parse(value), null, 2)
+    } catch {
+      return value
+    }
+  }
+  return JSON.stringify(value, null, 2)
+}
+
+/** Maps a driver result to the wire DTO shared with the webview. */
+export function toQueryResultDto(result: DriverQueryResult): QueryResultDto {  return {
     columns: [...result.columns],
     rows: result.rows.map((row) => [...row]),
     rowCount: result.rows.length,

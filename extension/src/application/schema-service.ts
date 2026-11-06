@@ -39,8 +39,7 @@ export class SchemaService {
   }
 
   /** Drops cached metadata for one connection, or for all connections. */
-  invalidate(connectionId?: string): void {
-    for (const [key, bucket] of [
+  invalidate(connectionId?: string): void {    for (const [key, bucket] of [
       ['schemas', this.schemas],
       ['relations', this.relations],
       ['columns', this.columns],
@@ -52,6 +51,22 @@ export class SchemaService {
       }
       this.logger.info(`Schema cache cleared (${key}, ${connectionId ?? 'all'})`)
     }
+  }
+
+  /**
+   * Cache-only lookups for callers that must not trigger I/O, such as SQL
+   * completion. `undefined` means "not loaded yet, nothing to offer".
+   */
+  cachedSchemas(connectionId: string): Promise<string[]> | undefined {
+    return this.schemas.get(connectionId)
+  }
+
+  cachedRelations(connectionId: string, schema: string): Promise<RelationInfo[]> | undefined {
+    return this.relations.get(`${connectionId}\u0000${schema}`)
+  }
+
+  cachedColumns(connectionId: string, schema: string, relation: string): Promise<ColumnInfo[]> | undefined {
+    return this.columns.get(`${connectionId}\u0000${schema}\u0000${relation}`)
   }
 
   private cached<T>(

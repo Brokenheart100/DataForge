@@ -1,17 +1,18 @@
 # DataForge
 
-A PostgreSQL IDE for VS Code with a neo-brutalist workbench. Phase 1 is
-complete: manage connections, browse schemas/tables/views/columns, run SQL and
-read results without leaving the editor.
+A PostgreSQL IDE for VS Code with a neo-brutalist workbench. Phase 1 and 2 are
+complete: manage connections, browse schemas/tables/views/columns, run SQL, read
+results, and edit table rows in a grid with transactional commit, optimistic
+locking and CSV export.
 
 ```text
 extension/           VS Code extension (Node 22+, CommonJS bundle via esbuild)
-  src/domain         profiles, errors, driver ports — no vscode, no pg
-  src/application    connection/query/schema services + ports
-  src/infrastructure PostgreSQL driver, SecretStorage, Memento store
+  src/domain         profiles, errors, driver ports, pending-change model
+  src/application    connection/query/schema/data-editor/export services + ports
+  src/infrastructure PostgreSQL driver, SQL builder, CSV writer, SecretStorage
   src/presentation   tree view, webview panel, message router, logging
   media              activity bar icon
-webview/             Vue 3 + Pinia + Tailwind workbench (browser target)
+webview/             Vue 3 + Pinia + Tailwind + AG Grid workbench (browser target)
 shared/              dependency-free message protocol used by both sides
 ```
 
@@ -55,8 +56,17 @@ DATAFORGE_TEST_PG=postgres://postgres:forge_test@127.0.0.1:5433/forge \
 ```
 
 It verifies identity probing, metadata queries, result mapping, row truncation,
-affected-row counts and server-side cancellation. Without the variable the
-suite is skipped.
+affected-row counts, server-side cancellation, page loading with `xmin`
+versions, transactional inserts/updates/deletes, conflict rollback, read-only
+views, 2500-row CSV streaming, explicit transaction sessions (uncommitted rows
+stay invisible to pool queries until `COMMIT`, `ROLLBACK` discards them) and
+`explain (format json)`. Without the variable those suites are skipped.
+
+## Documentation
+
+- [docs/architecture.md](docs/architecture.md) — process boundaries, layers, protocol, security, lifecycle.
+- [docs/dependencies.md](docs/dependencies.md) — runtime/tooling dependency inventory and selection records.
+- [docs/plan.md](docs/plan.md) — Phase 2–4 breakdown, acceptance criteria, risks.
 
 ## Design notes
 
@@ -73,9 +83,33 @@ suite is skipped.
   returned to the pool.
 - **Read-only profiles** are guarded by a conservative statement check; real
   protection remains the database role's privileges.
+- **Writes are data, not SQL.** The webview sends row diffs; the host validates
+  them against column metadata, then the driver builds parameterised statements
+  in one transaction. Identifiers are double-quoted and length-checked.
+- **Conflicts abort the batch.** `UPDATE`/`DELETE` carry `xmin::text = $n`; a row
+  changed by another session affects zero rows, so the whole transaction rolls
+  back and only the conflicting primary keys are returned.
+- **Export never touches the webview.** The host picks the path with
+  `showSaveDialog` and streams rows through `pg-cursor`; a failed export deletes
+  its partial file.
+- **Commits and exports are cancellable.** `data.cancel` aborts the request by
+  id: the driver checks between statements and always rolls back, and a
+  cancelled export removes the half-written CSV.
+- **The editor is VS Code's.** Completion, formatting and diagnostics attach
+  through language APIs: the provider reads the host's schema cache without
+  triggering I/O, `Format SQL` rewrites the selection (or the whole document)
+  through `WorkspaceEdit` so `Ctrl+Z` still works.
+- **History is bounded and harmless.** Every execution is recorded into
+  `globalState` (200 entries, consecutive duplicates merged); a failure to
+  record is logged, never surfaced as a query error.
+- **Transactions own one backend.** `Begin transaction` opens a dedicated
+  client with `BEGIN`, later runs go through `transaction.run`, and the host
+  rolls the session back when the panel closes, the extension deactivates or
+  the connection drops — a leaked session never keeps a row lock alive.
 
 ## Roadmap
 
-- Phase 2: AG Grid editing, paging, pending-change commit/rollback, CSV export.
-- Phase 3: completion, formatting, history, EXPLAIN, transactions.
 - Phase 4: additional drivers behind `DatabaseDriver`.
+- Known gap: closing the workbench rolls back an open transaction, but pending
+  cell edits in the webview are still discarded without a prompt (see
+  [docs/plan.md](docs/plan.md)).

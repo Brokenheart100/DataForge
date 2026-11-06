@@ -2,19 +2,35 @@ import { performance } from 'node:perf_hooks'
 
 import { Client, Pool } from 'pg'
 import type { PoolClient, QueryResult } from 'pg'
+import Cursor from 'pg-cursor'
 
 import type { CellValue, ColumnDto, SslMode } from '@shared/protocol'
 import type { ConnectionConfig } from '../../domain/connection'
 import type {
   ColumnInfo,
-  DatabaseDriver,
+  DataEditingDriver,
+  DataRow,
+  DriverCapabilities,
+  DriverPageInput,
+  DriverPageResult,
   DriverQueryInput,
   DriverQueryResult,
+  DriverSession,
+  MutationBatch,
+  MutationField,
+  MutationResult,
   RelationInfo,
   RelationKind,
+  RowMutation,
   ServerInfo,
+  StreamResult,
+  TableExportDriver,
+  DriverStreamInput,
+  TransactionalDriver,
 } from '../../domain/driver'
-import { DataForgeError, redactSecrets } from '../../domain/errors'
+import { DataConflictError, DataForgeError, redactSecrets } from '../../domain/errors'
+import { buildCountQuery, buildDelete, buildInsert, buildPageQuery, buildUpdate, quoteQualified } from './sql-builder'
+import type { BuiltStatement, ColumnValue } from './sql-builder'
 
 export interface PostgresSettings {
   readonly connectTimeoutMs: number
@@ -106,6 +122,52 @@ function toColumns(fields: readonly { name: string; dataTypeID: number }[]): Col
   }))
 }
 
+function toDataRow(row: readonly unknown[], input: DriverPageInput): DataRow {
+  const values = row.slice(0, input.columns.length).map(toCellValue)
+  const identity: Record<string, CellValue> = {}
+  for (const name of input.identityColumns) {
+    const index = input.columns.indexOf(name)
+    identity[name] = index === -1 ? null : (values[index] ?? null)
+  }
+  const version = input.withVersion === true ? row[input.columns.length] : null
+  return { values, identity, version: version === null || version === undefined ? null : String(version) }
+}
+
+function toCount(value: string | number | undefined): number {
+  const parsed = typeof value === 'number' ? value : Number(value ?? 0)
+  if (!Number.isFinite(parsed) || parsed < 0) return 0
+  return Number.isSafeInteger(parsed) ? parsed : Number.MAX_SAFE_INTEGER
+}
+
+function toColumnValues(fields: readonly MutationField[]): ColumnValue[] {
+  return fields.map((field) => ({ column: field.column, value: field.value }))
+}
+
+function buildMutation(batch: MutationBatch, mutation: RowMutation): BuiltStatement {
+  const { schema, relation } = batch
+  switch (mutation.kind) {
+    case 'insert':
+      return buildInsert(schema, relation, toColumnValues(mutation.values), mutation.returning)
+    case 'update':
+      return buildUpdate(
+        schema,
+        relation,
+        toColumnValues(mutation.values),
+        toColumnValues(mutation.identity),
+        mutation.version,
+        mutation.returning,
+      )
+    case 'delete':
+      return buildDelete(schema, relation, toColumnValues(mutation.identity), mutation.version, mutation.returning)
+  }
+}
+
+/** `id=42, tenant=acme` — readable in logs and in the conflict toast. */
+function describeIdentity(mutation: RowMutation): string {
+  const parts = mutation.identity.map((field) => `${field.column}=${field.value === null ? 'null' : String(field.value)}`)
+  return parts.length > 0 ? parts.join(', ') : '(no key)'
+}
+
 interface PgErrorLike {
   readonly code?: unknown
   readonly message?: unknown
@@ -142,8 +204,9 @@ export function mapPgError(error: unknown): DataForgeError {
   return new DataForgeError(kind, `[${code}] ${parts.join('\n')}`)
 }
 
-export class PostgresDriver implements DatabaseDriver {
+export class PostgresDriver implements DataEditingDriver, TableExportDriver, TransactionalDriver {
   readonly kind = 'postgresql'
+  readonly capabilities: DriverCapabilities = { transactions: true, returning: true, identifierQuote: '"' }
 
   private readonly pool: Pool
   private disposed = false
@@ -224,6 +287,67 @@ export class PostgresDriver implements DatabaseDriver {
     }
   }
 
+  async openSession(): Promise<DriverSession> {
+    const client = await this.acquire()
+    try {
+      await client.query('begin')
+    } catch (error) {
+      client.release(true)
+      throw mapPgError(error)
+    }
+
+    let closed = false
+    const release = (destroy: boolean): void => {
+      if (closed) return
+      closed = true
+      client.release(destroy)
+    }
+
+    return {
+      query: async (input: DriverQueryInput): Promise<DriverQueryResult> => {
+        if (closed) throw new DataForgeError('invalid_request', 'This transaction is no longer open.')
+        if (!input.sql.trim()) throw new DataForgeError('invalid_request', 'Nothing to execute: the SQL buffer is empty.')
+        const started = performance.now()
+        try {
+          const raw = await client.query<unknown[]>({ text: input.sql, rowMode: 'array' })
+          return this.toResult(raw, input.maxRows, performance.now() - started)
+        } catch (error) {
+          throw mapPgError(error)
+        }
+      },
+      commit: async (): Promise<void> => {
+        if (closed) return
+        try {
+          await client.query('commit')
+        } catch (error) {
+          release(true)
+          throw mapPgError(error)
+        }
+        release(false)
+      },
+      rollback: async (): Promise<void> => {
+        if (closed) return
+        try {
+          await client.query('rollback')
+        } catch (error) {
+          release(true)
+          throw mapPgError(error)
+        }
+        release(false)
+      },
+      close: async (): Promise<void> => {
+        if (closed) return
+        try {
+          await client.query('rollback')
+        } catch {
+          release(true)
+          return
+        }
+        release(false)
+      },
+    }
+  }
+
   async listSchemas(): Promise<string[]> {
     const result = await this.runScalarQuery<{ nspname: string }>(SCHEMA_SQL)
     return result.map((row) => row.nspname)
@@ -261,6 +385,78 @@ export class PostgresDriver implements DatabaseDriver {
     }))
   }
 
+  async selectPage(input: DriverPageInput): Promise<DriverPageResult> {
+    if (input.columns.length === 0) throw new DataForgeError('invalid_request', 'A page needs at least one selected column.')
+    const client = await this.acquire()
+    try {
+      const page = buildPageQuery(input)
+      const result = await client.query<unknown[]>({
+        text: page.text,
+        values: [...page.values],
+        rowMode: 'array',
+      })
+      const rows = result.rows.map((row) => toDataRow(row, input))
+      const total = await client.query<{ total: string }>(buildCountQuery(input.schema, input.relation).text)
+      return { rows, totalRows: toCount(total.rows[0]?.total) }
+    } catch (error) {
+      throw mapPgError(error)
+    } finally {
+      client.release()
+    }
+  }
+
+  async countRows(schema: string, relation: string): Promise<number> {
+    const rows = await this.runScalarQuery<{ total: string }>(buildCountQuery(schema, relation).text)
+    return toCount(rows[0]?.total)
+  }
+
+  /**
+   * Runs every mutation on one exclusive client.
+   *
+   * A failed statement rolls the whole batch back, so a conflict detected
+   * halfway never leaves a partially updated table behind. Update and delete
+   * statements must match exactly one row: zero affected rows means the row
+   * moved on (`xmin` changed) or was deleted, which aborts the transaction
+   * with a {@link DataConflictError} listing the identities.
+   */
+  async applyMutations(batch: MutationBatch): Promise<readonly MutationResult[]> {
+    if (batch.mutations.length === 0) return []
+    const client = await this.acquire()
+    let destroyClient = false
+    try {
+      await client.query('begin')
+      const results: MutationResult[] = []
+      const conflicts: string[] = []
+      for (const mutation of batch.mutations) {
+        if (batch.signal?.aborted) throw new DataForgeError('cancelled', 'The commit was cancelled.')
+        const statement = buildMutation(batch, mutation)
+        const raw = await client.query<unknown[]>({
+          text: statement.text,
+          values: [...statement.values],
+          rowMode: 'array',
+        })
+        const first = raw.rows[0]
+        const affected = raw.rowCount ?? 0
+        if (mutation.kind !== 'insert' && affected === 0) {
+          conflicts.push(describeIdentity(mutation))
+        }
+        results.push({ rowCount: affected, returned: first ? first.map(toCellValue) : null })
+      }
+      if (conflicts.length > 0) throw new DataConflictError(conflicts)
+      await client.query('commit')
+      return results
+    } catch (error) {
+      try {
+        await client.query('rollback')
+      } catch {
+        destroyClient = true
+      }
+      throw mapPgError(error)
+    } finally {
+      client.release(destroyClient)
+    }
+  }
+
   async dispose(): Promise<void> {
     if (this.disposed) return
     this.disposed = true
@@ -279,6 +475,56 @@ export class PostgresDriver implements DatabaseDriver {
       throw mapPgError(error)
     } finally {
       client.release()
+    }
+  }
+
+  /**
+   * Streams every row of a relation through a server-side cursor.
+   *
+   * `statement_timeout` is disabled for this session because a large export
+   * legitimately outlives the interactive timeout; it is restored before the
+   * client returns to the pool so the next query is protected again.
+   */
+  async exportTable(
+    { schema, relation, batchSize, signal }: DriverStreamInput,
+    onBatch: (rows: readonly (readonly CellValue[])[]) => void | Promise<void>,
+  ): Promise<StreamResult> {
+    const client = await this.acquire()
+    const timeout = Math.trunc(this.settings.statementTimeoutMs)
+    let cursor: Cursor | undefined
+    let destroyClient = false
+
+    try {
+      await client.query(`set statement_timeout = 0`)
+      cursor = new Cursor(`select * from ${quoteQualified(schema, relation)}`, undefined, { rowMode: 'array' })
+      // `pg` accepts a query object exposing `submit`, which is what a Cursor is.
+      client.query(cursor as never)
+
+      let rowCount = 0
+      for (;;) {
+        if (signal?.aborted) throw new DataForgeError('cancelled', 'The export was cancelled.')
+        const rows = await cursor.read(Math.max(1, Math.trunc(batchSize)))
+        if (rows.length === 0) break
+        rowCount += rows.length
+        await onBatch(rows.map((row) => row.map((value) => toCellValue(value))))
+      }
+      return { rowCount }
+    } catch (error) {
+      throw mapPgError(error)
+    } finally {
+      if (cursor) {
+        try {
+          await cursor.close()
+        } catch {
+          destroyClient = true
+        }
+      }
+      try {
+        await client.query(`set statement_timeout = ${timeout}`)
+      } catch {
+        destroyClient = true
+      }
+      client.release(destroyClient)
     }
   }
 
