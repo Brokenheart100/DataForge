@@ -10,10 +10,13 @@
  * straight into VS Code SecretStorage; the host never sends them back.
  */
 
-export const PROTOCOL_VERSION = 3
+export const PROTOCOL_VERSION = 4
 
 export type SslMode = 'disable' | 'require' | 'verify-full'
 export type ConnectionState = 'disconnected' | 'connected' | 'error'
+
+/** Database flavour a profile points at. Drivers are selected by this value. */
+export type ConnectionKind = 'postgresql' | 'mysql' | 'sqlite' | 'sqlserver'
 
 /** JSON-safe cell value. Dates arrive as ISO strings, bytea as `\x…`. */
 export type CellValue = string | number | boolean | null
@@ -27,6 +30,7 @@ export interface ColumnDto {
 export interface ConnectionSummary {
   id: string
   name: string
+  kind: ConnectionKind
   host: string
   port: number
   database: string
@@ -40,6 +44,8 @@ export interface ConnectionSummary {
 
 /** Payload accepted when creating or testing a connection (write-only password). */
 export interface ConnectionDraft {
+  /** Optional for backwards compatibility; defaults to `postgresql`. */
+  kind?: ConnectionKind
   name: string
   host: string
   port: number

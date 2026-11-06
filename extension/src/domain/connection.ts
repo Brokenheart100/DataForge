@@ -1,7 +1,7 @@
-import type { ConnectionState, SslMode } from '@shared/protocol'
+import type { ConnectionKind, ConnectionState, SslMode } from '@shared/protocol'
 
 /**
- * Persistent, secret-free description of a PostgreSQL connection.
+ * Persistent, secret-free description of a database connection.
  *
  * Passwords never live here: they are stored in VS Code SecretStorage and
  * fetched by the infrastructure layer only when a pool is created.
@@ -9,6 +9,8 @@ import type { ConnectionState, SslMode } from '@shared/protocol'
 export interface ConnectionProfile {
   readonly id: string
   readonly name: string
+  /** Selects the driver; defaults to PostgreSQL for profiles written before v4. */
+  readonly kind: ConnectionKind
   readonly host: string
   readonly port: number
   readonly database: string
@@ -39,7 +41,25 @@ export interface ConnectionStatus {
 
 export const DEFAULT_PORT = 5432
 
+export const CONNECTION_KINDS: readonly ConnectionKind[] = ['postgresql', 'mysql', 'sqlite', 'sqlserver']
+
+const KIND_DEFAULTS: Readonly<Record<ConnectionKind, { port: number; database: string; user: string }>> = {
+  postgresql: { port: 5432, database: 'postgres', user: 'postgres' },
+  mysql: { port: 3306, database: 'mysql', user: 'root' },
+  sqlite: { port: 0, database: 'dataforge.sqlite', user: 'sqlite' },
+  sqlserver: { port: 1433, database: 'master', user: 'sa' },
+}
+
+export function isConnectionKind(value: unknown): value is ConnectionKind {
+  return typeof value === 'string' && (CONNECTION_KINDS as readonly string[]).includes(value)
+}
+
+export function defaultPortFor(kind: ConnectionKind): number {
+  return KIND_DEFAULTS[kind].port
+}
+
 export interface ProfileDraft {
+  kind?: ConnectionKind
   name?: string
   host?: string
   port?: number
@@ -61,14 +81,17 @@ export function isSslMode(value: unknown): value is SslMode {
  * deterministic clean-up so the domain stays free of transport concerns.
  */
 export function createProfile(id: string, draft: ProfileDraft, now: number): ConnectionProfile {
+  const kind: ConnectionKind = draft.kind ?? 'postgresql'
+  const defaults = KIND_DEFAULTS[kind]
   const host = draft.host?.trim() || 'localhost'
-  const database = draft.database?.trim() || 'postgres'
-  const user = draft.user?.trim() || 'postgres'
+  const database = draft.database?.trim() || defaults.database
+  const user = draft.user?.trim() || defaults.user
   return {
     id,
-    name: draft.name?.trim() || `${database}@${host}`,
+    kind,
+    name: draft.name?.trim() || (kind === 'sqlite' ? database : `${database}@${host}`),
     host,
-    port: clampPort(draft.port),
+    port: clampPort(draft.port, defaults.port),
     database,
     user,
     ssl: draft.ssl ?? 'require',
@@ -77,8 +100,8 @@ export function createProfile(id: string, draft: ProfileDraft, now: number): Con
   }
 }
 
-export function clampPort(port: number | undefined): number {
-  if (port === undefined || !Number.isFinite(port)) return DEFAULT_PORT
+export function clampPort(port: number | undefined, fallback = DEFAULT_PORT): number {
+  if (port === undefined || !Number.isFinite(port)) return fallback
   const rounded = Math.trunc(port)
   if (rounded < 1) return 1
   if (rounded > 65535) return 65535

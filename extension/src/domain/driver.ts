@@ -1,4 +1,4 @@
-import type { CellValue, ColumnDto } from '@shared/protocol'
+import type { CellValue, ColumnDto, ConnectionKind } from '@shared/protocol'
 
 /** Identity of the server behind a connection, shown in the connection card. */
 export interface ServerInfo {
@@ -60,7 +60,9 @@ export interface TransactionalDriver extends DatabaseDriver {
 }
 
 export interface DatabaseDriver {
-  readonly kind: string
+  readonly kind: ConnectionKind
+  /** Optional: adapters advertise what the UI may offer; absent means nothing beyond queries. */
+  readonly capabilities?: DriverCapabilities
   testConnection(): Promise<ServerInfo>
   query(input: DriverQueryInput): Promise<DriverQueryResult>
   listSchemas(): Promise<string[]>

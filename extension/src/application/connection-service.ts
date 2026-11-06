@@ -104,6 +104,7 @@ export class ConnectionService {
     const updated = createProfile(
       current.id,
       {
+        kind: patch.kind ?? current.kind,
         name: patch.name ?? current.name,
         host: patch.host ?? current.host,
         port: patch.port ?? current.port,
@@ -246,6 +247,7 @@ export class ConnectionService {
     return {
       id: profile.id,
       name: profile.name,
+      kind: profile.kind,
       host: profile.host,
       port: profile.port,
       database: profile.database,

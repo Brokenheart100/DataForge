@@ -31,9 +31,11 @@ import { DataForgeError, toErrorDto } from '../domain/errors'
 const sslSchema = z.enum(['disable', 'require', 'verify-full'])
 
 const draftSchema = z.object({
+  // Optional: clients built before protocol v4 send no kind and get PostgreSQL.
+  kind: z.enum(['postgresql', 'mysql', 'sqlite', 'sqlserver']).optional(),
   name: z.string().trim().min(1).max(120),
   host: z.string().trim().min(1).max(253),
-  port: z.number().int().min(1).max(65535),
+  port: z.number().int().min(0).max(65535),
   database: z.string().trim().min(1).max(120),
   user: z.string().trim().min(1).max(120),
   password: z.string().max(4096),

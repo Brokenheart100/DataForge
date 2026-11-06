@@ -1,15 +1,17 @@
 # DataForge
 
-A PostgreSQL IDE for VS Code with a neo-brutalist workbench. Phase 1 and 2 are
-complete: manage connections, browse schemas/tables/views/columns, run SQL, read
-results, and edit table rows in a grid with transactional commit, optimistic
-locking and CSV export.
+A PostgreSQL-first database IDE for VS Code with a neo-brutalist workbench.
+Phases 1–3 are complete and Phase 4 added a second driver: manage connections,
+browse schemas/tables/views/columns, run SQL, read results, edit table rows in a
+grid with transactional commit, optimistic locking and CSV export, and complete
+SQL through VS Code's own language services. PostgreSQL gets the full feature
+set; MySQL currently covers connections, metadata and queries.
 
 ```text
 extension/           VS Code extension (Node 22+, CommonJS bundle via esbuild)
   src/domain         profiles, errors, driver ports, pending-change model
   src/application    connection/query/schema/data-editor/export services + ports
-  src/infrastructure PostgreSQL driver, SQL builder, CSV writer, SecretStorage
+  src/infrastructure PostgreSQL + MySQL drivers, SQL builder, CSV writer, SecretStorage
   src/presentation   tree view, webview panel, message router, logging
   media              activity bar icon
 webview/             Vue 3 + Pinia + Tailwind + AG Grid workbench (browser target)
@@ -60,13 +62,21 @@ affected-row counts, server-side cancellation, page loading with `xmin`
 versions, transactional inserts/updates/deletes, conflict rollback, read-only
 views, 2500-row CSV streaming, explicit transaction sessions (uncommitted rows
 stay invisible to pool queries until `COMMIT`, `ROLLBACK` discards them) and
-`explain (format json)`. Without the variable those suites are skipped.
+`explain (format json)`. The MySQL adapter has its own suite gated by
+`DATAFORGE_TEST_MYSQL` (metadata, row mapping, affected rows, cancellation).
+Without those variables the suites are skipped.
+
+```bash
+docker run -d --rm --name dataforge-mysql -e MYSQL_ROOT_PASSWORD=forge_test -e MYSQL_DATABASE=forge -p 3307:3306 mysql:8.4
+DATAFORGE_TEST_MYSQL="mysql://root:forge_test@127.0.0.1:3307/forge" npm run test:unit --workspace extension
+```
 
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) — process boundaries, layers, protocol, security, lifecycle.
 - [docs/dependencies.md](docs/dependencies.md) — runtime/tooling dependency inventory and selection records.
-- [docs/plan.md](docs/plan.md) — Phase 2–4 breakdown, acceptance criteria, risks.
+- [docs/plan.md](docs/plan.md) — phase breakdown, acceptance criteria, risks.
+- [docs/drivers.md](docs/drivers.md) — driver ports, adding a database, per-driver capability matrix.
 
 ## Design notes
 
@@ -109,7 +119,8 @@ stay invisible to pool queries until `COMMIT`, `ROLLBACK` discards them) and
 
 ## Roadmap
 
-- Phase 4: additional drivers behind `DatabaseDriver`.
+- Further drivers (SQLite, SQL Server): the `ConnectionKind` values exist, the adapters do not; write them against `DatabaseDriver` following [docs/drivers.md](docs/drivers.md).
+- MySQL parity: data editing, CSV export and explicit transactions are PostgreSQL-only for now.
 - Known gap: closing the workbench rolls back an open transaction, but pending
   cell edits in the webview are still discarded without a prompt (see
   [docs/plan.md](docs/plan.md)).

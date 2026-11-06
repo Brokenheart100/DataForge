@@ -1,8 +1,9 @@
 # DataForge
 
-A neo-brutalist PostgreSQL IDE inside VS Code. Phase 1 covers the full
+A neo-brutalist database IDE inside VS Code. Phase 1 covers the full
 connection-to-results loop; Phase 2 adds a data editor and CSV export; Phase 3
-adds completion, formatting, history, EXPLAIN and explicit transactions:
+adds completion, formatting, history, EXPLAIN and explicit transactions; Phase 4
+adds a MySQL adapter behind the same driver ports:
 
 - **Connections** — store PostgreSQL connection profiles, test them, connect and
   disconnect from the DataForge sidebar or the workbench.
@@ -43,7 +44,7 @@ adds completion, formatting, history, EXPLAIN and explicit transactions:
 ## Requirements
 
 - VS Code 1.115 or newer.
-- A PostgreSQL server reachable from the machine running VS Code.
+- A PostgreSQL server reachable from the machine running VS Code (MySQL connections only need queries and metadata).
 
 ## Getting started
 
@@ -82,7 +83,7 @@ CSP nonce stays under its control; the webview bundle is built into
 - `extension/src/domain` — profiles, errors, driver ports. No `vscode`, no `pg`.
 - `extension/src/application` — connection, query, schema, data-editing, export,
   history, format and transaction-session services plus ports.
-- `extension/src/infrastructure` — PostgreSQL driver, SQL builder, CSV writer,
+- `extension/src/infrastructure` — PostgreSQL and MySQL drivers, SQL builder, CSV writer,
   SecretStorage, Memento stores.
 - `extension/src/presentation` — tree view, webview panel, message router,
   completion provider, diagnostics, logging.

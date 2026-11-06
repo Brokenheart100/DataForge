@@ -23,6 +23,7 @@ function configFor(target: URL): ConnectionConfig {
   return {
     profile: {
       id: randomUUID(),
+      kind: 'postgresql',
       name: 'integration',
       host: target.hostname,
       port: Number(target.port || 5432),

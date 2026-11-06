@@ -12,7 +12,9 @@ import { QueryService } from './application/query-service'
 import { QuerySessionService } from './application/query-session-service'
 import { SchemaService } from './application/schema-service'
 import type { ConnectionConfig } from './domain/connection'
+import type { DatabaseDriver } from './domain/driver'
 import { DataForgeError } from './domain/errors'
+import { MySqlDriver } from './infrastructure/mysql/mysql-driver'
 import { PostgresDriver } from './infrastructure/postgres/postgres-driver'
 import { MementoConnectionStore } from './infrastructure/persistence/connection-store'
 import { MementoHistoryStore } from './infrastructure/persistence/history-store'
@@ -266,11 +268,18 @@ export function deactivate(): void {
   // Everything is released through context.subscriptions.
 }
 
-function createDriver(config: ConnectionConfig, logger: Logger): PostgresDriver {
+function createDriver(config: ConnectionConfig, logger: Logger): DatabaseDriver {
   const settings = vscode.workspace.getConfiguration('dataforge')
+  const connectTimeoutMs = settings.get<number>('connectTimeoutMs', 10_000)
+  const statementTimeoutMs = settings.get<number>('statementTimeoutMs', 30_000)
+
+  if (config.profile.kind === 'mysql') return new MySqlDriver(config, { connectTimeoutMs, statementTimeoutMs })
+  if (config.profile.kind !== 'postgresql') {
+    throw new DataForgeError('internal', `The ${config.profile.kind} driver is not implemented yet.`)
+  }
   return new PostgresDriver(config, {
-    connectTimeoutMs: settings.get<number>('connectTimeoutMs', 10_000),
-    statementTimeoutMs: settings.get<number>('statementTimeoutMs', 30_000),
+    connectTimeoutMs,
+    statementTimeoutMs,
     onBackgroundError: (message) => logger.warn(message),
   })
 }

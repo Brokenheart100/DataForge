@@ -12,6 +12,7 @@ function configFor(target: URL): ConnectionConfig {
   return {
     profile: {
       id: 'live-session',
+      kind: 'postgresql',
       name: 'live session',
       host: target.hostname,
       port: target.port ? Number(target.port) : 5432,

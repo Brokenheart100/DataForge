@@ -29,6 +29,7 @@ import type {
   TransactionalDriver,
 } from '../../domain/driver'
 import { DataConflictError, DataForgeError, redactSecrets } from '../../domain/errors'
+import { toCellValue } from '../cells'
 import { buildCountQuery, buildDelete, buildInsert, buildPageQuery, buildUpdate, quoteQualified } from './sql-builder'
 import type { BuiltStatement, ColumnValue } from './sql-builder'
 
@@ -96,23 +97,6 @@ function sslOptions(mode: SslMode): false | { rejectUnauthorized: boolean } {
   // `require` mirrors libpq: TLS without CA verification. `verify-full` verifies
   // the chain and the hostname through Node's default CA store.
   return { rejectUnauthorized: mode === 'verify-full' }
-}
-
-function toCellValue(value: unknown): CellValue {
-  if (value === null || value === undefined) return null
-  if (typeof value === 'string' || typeof value === 'boolean') return value
-  if (typeof value === 'number') return Number.isFinite(value) ? value : String(value)
-  if (typeof value === 'bigint') return value.toString()
-  if (value instanceof Date) return value.toISOString()
-  if (Buffer.isBuffer(value)) {
-    const head = value.subarray(0, 32).toString('hex')
-    return `\\x${head}${value.length > 32 ? '…' : ''}`
-  }
-  try {
-    return JSON.stringify(value) ?? String(value)
-  } catch {
-    return String(value)
-  }
 }
 
 function toColumns(fields: readonly { name: string; dataTypeID: number }[]): ColumnDto[] {

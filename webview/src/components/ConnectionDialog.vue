@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue'
 
-import type { ConnectionDraft, ConnectionSummary, ConnectionTestResult, SslMode } from '@shared/protocol'
+import type { ConnectionDraft, ConnectionKind, ConnectionSummary, ConnectionTestResult, SslMode } from '@shared/protocol'
 
 import { useWorkbenchStore } from '@/stores/workbench'
 
@@ -17,7 +17,21 @@ const emit = defineEmits<{
 
 const store = useWorkbenchStore()
 
+interface KindPreset {
+  value: ConnectionKind
+  label: string
+  port: string
+  database: string
+  user: string
+}
+
+const KIND_PRESETS: readonly KindPreset[] = [
+  { value: 'postgresql', label: 'PostgreSQL', port: '5432', database: 'postgres', user: 'postgres' },
+  { value: 'mysql', label: 'MySQL / MariaDB', port: '3306', database: 'mysql', user: 'root' },
+]
+
 interface FormState {
+  kind: ConnectionKind
   name: string
   host: string
   port: string
@@ -33,17 +47,32 @@ const busy = ref(false)
 const message = ref<{ tone: 'ok' | 'error'; text: string }>()
 const testResult = ref<ConnectionTestResult>()
 
-function blankForm(): FormState {
+function presetFor(kind: ConnectionKind): KindPreset {
+  return KIND_PRESETS.find((preset) => preset.value === kind) ?? KIND_PRESETS[0]!
+}
+
+function blankForm(kind: ConnectionKind = 'postgresql'): FormState {
+  const preset = presetFor(kind)
   return {
+    kind,
     name: '',
     host: 'localhost',
-    port: '5432',
-    database: 'postgres',
-    user: 'postgres',
+    port: preset.port,
+    database: preset.database,
+    user: preset.user,
     password: '',
-    ssl: 'require',
+    ssl: kind === 'postgresql' ? 'require' : 'disable',
     readOnly: false,
   }
+}
+
+function applyKind(kind: ConnectionKind): void {
+  if (kind === form.kind) return
+  const preset = presetFor(kind)
+  form.kind = kind
+  form.port = preset.port
+  form.database = preset.database
+  form.user = preset.user
 }
 
 watch(
@@ -57,6 +86,7 @@ watch(
       form,
       connection
         ? {
+          kind: connection.kind,
           name: connection.name,
           host: connection.host,
           port: String(connection.port),
@@ -75,9 +105,10 @@ watch(
 function toDraft(): ConnectionDraft {
   const port = Number.parseInt(form.port, 10)
   return {
+    kind: form.kind,
     name: form.name.trim() || `${form.database.trim()}@${form.host.trim()}`,
     host: form.host.trim(),
-    port: Number.isFinite(port) ? port : 5432,
+    port: Number.isFinite(port) ? port : Number.parseInt(presetFor(form.kind).port, 10),
     database: form.database.trim(),
     user: form.user.trim(),
     password: form.password,
@@ -91,7 +122,7 @@ function validate(): string | undefined {
   if (!draft.host) return 'Host is required.'
   if (!draft.database) return 'Database name is required.'
   if (!draft.user) return 'User is required.'
-  if (draft.port < 1 || draft.port > 65535) return 'Port must be between 1 and 65535.'
+  if (draft.kind !== 'sqlite' && (draft.port < 1 || draft.port > 65535)) return 'Port must be between 1 and 65535.'
   return undefined
 }
 
@@ -150,7 +181,7 @@ function close(): void {
       <div class="mb-3 flex items-start justify-between gap-4">
         <div>
           <h2 class="text-sm font-black uppercase tracking-wide">
-            {{ connection ? 'Edit connection' : 'New PostgreSQL connection' }}
+            {{ connection ? 'Edit connection' : 'New connection' }}
           </h2>
           <p class="text-[11px] text-muted">The password is stored in VS Code SecretStorage, never in settings.</p>
         </div>
@@ -158,6 +189,12 @@ function close(): void {
       </div>
 
       <div class="grid grid-cols-2 gap-3">
+        <label class="col-span-2">
+          <span class="df-label">Type</span>
+          <select class="df-input" :value="form.kind" @change="applyKind(($event.target as HTMLSelectElement).value as ConnectionKind)">
+            <option v-for="preset in KIND_PRESETS" :key="preset.value" :value="preset.value">{{ preset.label }}</option>
+          </select>
+        </label>
         <label class="col-span-2">
           <span class="df-label">Name</span>
           <input v-model="form.name" class="df-input" :placeholder="`${form.database}@${form.host}`" />

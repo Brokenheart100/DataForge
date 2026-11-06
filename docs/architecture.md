@@ -62,10 +62,10 @@ domain        ← application ← infrastructure
 
 | 文件 | 关键导出 | 说明 |
 | --- | --- | --- |
-| `shared/protocol.ts` | `PROTOCOL_VERSION`(=3)、`RequestCatalogue`、`WebviewRequest`、`HostMessage`、`HostEvent` | 请求/响应/事件三种消息的唯一定义；`REQUEST_TYPES` 是 Zod 校验的白名单来源 |
-| `extension/src/domain/connection.ts` | `ConnectionProfile`、`ConnectionConfig`、`createProfile`、`clampPort`、`sameProfileName` | 密码不进入 profile；默认 `localhost:5432/postgres`、`ssl=require`、`readOnly=false` |
+| `shared/protocol.ts` | `PROTOCOL_VERSION`(=4)、`ConnectionKind`、`RequestCatalogue`、`WebviewRequest`、`HostMessage`、`HostEvent` | 请求/响应/事件三种消息的唯一定义；`REQUEST_TYPES` 是 Zod 校验的白名单来源 |
+| `extension/src/domain/connection.ts` | `ConnectionProfile`、`ConnectionConfig`、`createProfile`、`KIND_DEFAULTS`、`clampPort`、`sameProfileName` | 密码不进入 profile；`kind` 决定默认端口/库/用户（PostgreSQL `5432/postgres`、MySQL `3306/mysql`）；`ssl` 默认 `require`、`readOnly=false` |
 | `extension/src/domain/errors.ts` | `DataForgeError`、`toErrorDto`、`wrapError`、`redactSecrets` | 统一错误码；脱敏 `password=…`、`pwd=…`、`postgres://user:pass@` |
-| `extension/src/domain/driver.ts` | `DatabaseDriver`、`DriverSession`、`DataEditingDriver`、`TableExportDriver`、`TransactionalDriver` | 驱动端口；编辑/导出/事务都是可选能力接口，新增数据库只实现 `DatabaseDriver` 即可 |
+| `extension/src/domain/driver.ts` | `DatabaseDriver`、`DriverCapabilities`、`DriverSession`、`DataEditingDriver`、`TableExportDriver`、`TransactionalDriver` | 驱动端口；`kind` 限定为 `ConnectionKind`，`capabilities?` 描述事务/`RETURNING`/标识符引用；编辑/导出/事务都是可选能力接口，新增数据库只实现 `DatabaseDriver` 即可 |
 | `extension/src/application/ports.ts` | `Logger`、`SecretStore`、`ConnectionStore`、`DriverFactory`、`Emitter` | 依赖倒置点；`Emitter` 是唯一的事件原语，无事件总线 |
 | `extension/src/application/connection-service.ts` | `ConnectionService` | `profiles` / `drivers` / `runtime` 三张表；`list()` 产出脱敏后的 `ConnectionSummary`；断连时销毁池 |
 | `extension/src/application/query-service.ts` | `QueryService`、`isReadOnlyStatement`、`clampMaxRows` | 以请求 id 登记 `AbortController`；只读连接在到达驱动前拦截写语句；行数上限 10 000 |
@@ -79,8 +79,10 @@ domain        ← application ← infrastructure
 | `extension/src/application/query-session-service.ts` | `QuerySessionService`、`isTransactionalDriver` | 每连接一个 `DriverSession`；重复 `begin`、未开启操作都报错；`rollbackAll()` 用于清理泄漏 |
 | `extension/src/presentation/completion.ts` | `createSqlCompletionProvider`、`candidatesFor`、`splitQualifier` | 关键字 + schema/表/列；只用缓存，未连接降级为空 |
 | `extension/src/presentation/diagnostics.ts` | `createQueryDiagnostics` | 状态栏耗时/失败 + 慢查询日志（阈值 `dataforge.slowQueryMs`） |
+| `extension/src/infrastructure/cells.ts` | `toCellValue` | 各驱动共用的单元格归一化（Date→ISO、bigint→字符串、Buffer→十六进制） |
 | `extension/src/infrastructure/export/csv.ts` | `CsvWriter`、`escapeCsvField` | RFC 4180 转义，默认 CRLF，支持 `,`/`;`/`\t` |
 | `extension/src/infrastructure/postgres/postgres-driver.ts` | `PostgresDriver`、`mapPgError`、`PostgresSettings` | 池上限 4、空闲 30 s、`statement_timeout` 在 `onConnect` 注入；数组行模式；取消走 `pg_terminate_backend`；实现 `DataEditingDriver`、`TableExportDriver`（`pg-cursor`）与 `TransactionalDriver`（`openSession` 独占 client） |
+| `extension/src/infrastructure/mysql/mysql-driver.ts` | `MySqlDriver`、`mapMySqlError`、`MySqlSettings` | `mysql2` 连接池；`dateStrings` 保留时间原文、`bigNumberStrings` 防精度丢失；取消走独立连接 `KILL QUERY`；`max_execution_time` 逐连接懒设置（只约束 SELECT）；只实现 `DatabaseDriver` |
 | `extension/src/infrastructure/security/secret-store.ts` | `VsCodeSecretStore` | key 形如 `dataforge.connection.<id>.password` |
 | `extension/src/infrastructure/persistence/connection-store.ts` | `MementoConnectionStore` | `globalState['dataforge.connections.v1']`，逐条 Zod 校验，坏数据静默丢弃 |
 | `extension/src/infrastructure/persistence/history-store.ts` | `MementoHistoryStore` | `globalState['dataforge.history.v1']`，Zod 校验后整体读取；只存 SQL 文本与耗时，不含结果行 |
@@ -272,6 +274,9 @@ Export CSV → request(data.export)
 - 关闭工作台会自动回滚宿主侧未提交的显式事务（`onClose → rollbackAll`），但 webview 内存里的待提交单元格变更仍会丢失。
 - 查询历史把 SQL 原文存进 `globalState`，其中的字面量（邮箱、手机号等）没有额外脱敏；历史是可清空的本机数据，不随连接走。
 - 事务会话只支持单连接、单会话：同一连接开第二个事务会被拒绝，跨连接事务不在范围内。
-- AG Grid 36 让 webview 产物增至约 1.33 MB（gzip 380 KB），尚未做按需加载或代码分割。
+- MySQL 驱动目前只有查询与元数据：数据编辑、CSV 导出、显式事务都未实现（`DataEditingDriver` / `TableExportDriver` / `TransactionalDriver` 缺席），界面会收到 `internal` 错误而不是静默失败。
+- `ConnectionKind` 已声明 `sqlite` / `sqlserver`，但没有对应驱动：`createDriver` 对未实现的 kind 抛 `internal`，新建连接的类型下拉只列 PostgreSQL 与 MySQL。
+- AG Grid 36 让 webview 产物增至约 1.28 MB（gzip 380 KB），尚未做按需加载或代码分割。
+- 打包进 `mysql2` 后宿主 bundle（`dist/extension.js`）约 1.9 MB；两个驱动都在激活时加载，尚未按 `kind` 懒加载。
 - `webview/e2e/vue.spec.ts` 仍是脚手架残留（断言 `You did it!`），未纳入 CI；见 [plan.md](./plan.md) 的工程化待办。
 - 发布元数据仍是占位：`publisher: "dataforge"`、缺少 `repository` 字段。

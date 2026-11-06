@@ -9,8 +9,10 @@ const STORAGE_KEY = 'dataforge.connections.v1'
 const profileSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
+  // Profiles written before protocol v4 have no kind: default them to PostgreSQL.
+  kind: z.enum(['postgresql', 'mysql', 'sqlite', 'sqlserver']).default('postgresql'),
   host: z.string().min(1),
-  port: z.number().int().min(1).max(65535),
+  port: z.number().int().min(0).max(65535),
   database: z.string().min(1),
   user: z.string().min(1),
   ssl: z.enum(['disable', 'require', 'verify-full']),

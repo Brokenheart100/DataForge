@@ -135,6 +135,7 @@ class DemoTransport implements Transport {
       connections: this.connections.map((draft, index) => ({
         id: `demo-${index}`,
         name: draft.name,
+        kind: 'postgresql',
         host: draft.host,
         port: draft.port,
         database: draft.database,

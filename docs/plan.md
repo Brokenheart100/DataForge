@@ -10,7 +10,7 @@
 | Phase 1 | 连接、浏览、查询、结果展示 | ✅ 已交付 | 21 / 21 |
 | Phase 2 | 数据编辑、事务、分页/排序/筛选、CSV 导出 | ✅ 实现完成 | 35 / 35（DoD 7 / 7） |
 | Phase 3 | 补全、格式化、历史、诊断、EXPLAIN、显式事务 | ✅ 实现完成 | 12 / 12 |
-| Phase 4 | 多驱动（MySQL / SQLite / SQL Server） | ⬜ 未开始 | 0 / 6 |
+| Phase 4 | 多驱动（MySQL 已落地，SQLite / SQL Server 未开始） | ✅ 实现完成 | 6 / 6 |
 | 工程化 | 跨阶段待办（CI、发布、清理） | 🟡 进行中 | 3 / 11 |
 
 图例：`[x]` 已完成 · `[ ]` 待办 · 每批完成即勾选并跑一次 `type-check` + `test:unit`。
@@ -219,12 +219,12 @@ Phase 3 不重写编辑器：补全/格式化/诊断全部通过 VS Code 语言 
 
 ### 6.1 Todo List
 
-- [ ] `protocol.ts` v4：`ConnectionProfile.kind` 与 `ConnectionSummary.kind`
-- [ ] `ConnectionProfile` 持久化迁移：缺省 `postgresql`
-- [ ] `DriverFactory` 按 `kind` 路由（`extension.ts` 组合根）
-- [ ] `DriverCapabilities` 接口落地，PostgreSQL 驱动先实现
-- [ ] 第二个驱动（MySQL 或 SQLite）只读 MVP：连接、元数据、查询
-- [ ] 驱动实现指南文档 + 新建连接时的类型选择 UI
+- [x] `protocol.ts` v4：`ConnectionProfile.kind` 与 `ConnectionSummary.kind`
+- [x] `ConnectionProfile` 持久化迁移：缺省 `postgresql`
+- [x] `DriverFactory` 按 `kind` 路由（`extension.ts` 组合根）
+- [x] `DriverCapabilities` 接口落地，PostgreSQL 驱动先实现
+- [x] 第二个驱动 MySQL 只读 MVP：连接、元数据、查询（`infrastructure/mysql/mysql-driver.ts`）
+- [x] 驱动实现指南文档 `docs/drivers.md` + 新建连接时的类型选择 UI
 
 ## 7. 跨阶段工程化待办
 
