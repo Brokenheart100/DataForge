@@ -2,7 +2,7 @@
   "name": "dataforge",
   "displayName": "DataForge",
   "description": "A neo-brutalist PostgreSQL IDE for VS Code: connections, schema explorer, SQL execution and result grids.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "publisher": "dataforge",
   "license": "MIT",
@@ -24,6 +24,7 @@
     "ide"
   ],
   "main": "./dist/extension.js",
+  "icon": "media/icon.png",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
