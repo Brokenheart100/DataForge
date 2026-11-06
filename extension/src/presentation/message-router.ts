@@ -20,7 +20,9 @@ import type {
   ObjectTargetInput,
   QueryInput,
   SchemaDiffInput,
+  SessionListInput,
   SessionStateDto,
+  SessionTerminateInput,
   RequestOutput,
   RequestType,
   ResponseError,
@@ -39,6 +41,7 @@ import type { ExportService } from '../application/export-service'
 import type { QueryService } from '../application/query-service'
 import { toQueryResultDto } from '../application/query-service'
 import type { QuerySessionService } from '../application/query-session-service'
+import type { SessionMonitor } from '../application/session-monitor'
 import { DataForgeError, toErrorDto } from '../domain/errors'
 
 const sslSchema = z.enum(['disable', 'require', 'verify-full'])
@@ -224,6 +227,16 @@ const payloadSchemas: Readonly<Record<RequestType, z.ZodType>> = {
     database: z.string().min(1).max(63).optional(),
     sql: z.string().min(1).max(1_000_000),
   }),
+  'session.list': z.object({
+    connectionId: z.string().min(1).max(128),
+    database: z.string().min(1).max(63).optional(),
+  }),
+  'session.terminate': z.object({
+    connectionId: z.string().min(1).max(128),
+    database: z.string().min(1).max(63).optional(),
+    sessionId: z.string().trim().min(1).max(64),
+    confirm: z.boolean(),
+  }),
   'transaction.begin': z.object({
     connectionId: z.string().min(1).max(128),
     database: z.string().min(1).max(63).optional(),
@@ -324,6 +337,8 @@ export interface MessageRouterDeps {
   readonly importer?: ImportService
   /** Optional so router tests can run without the DDL service. */
   readonly ddl?: DdlService
+  /** Optional so router tests can run without a session monitor. */
+  readonly monitor?: SessionMonitor
   /** Opens the DDL as a read-only document in the editor. */
   readonly openObjectDdl?: (target: ObjectTargetInput) => Promise<void>
   /** Opens generated statements as a read-only document in the editor. */
@@ -360,6 +375,11 @@ function importService(deps: MessageRouterDeps): ImportService {
 function ddlService(deps: MessageRouterDeps): DdlService {
   if (!deps.ddl) throw new DataForgeError('internal', 'Structural changes are not available in this build.')
   return deps.ddl
+}
+
+function sessionWatch(deps: MessageRouterDeps): SessionMonitor {
+  if (!deps.monitor) throw new DataForgeError('internal', 'Session monitoring is not available in this build.')
+  return deps.monitor
 }
 
 function okResponse<T extends RequestType>(id: string, type: T, data: RequestOutput<T>): WebviewResponse {
@@ -481,6 +501,10 @@ export class MessageRouter {
         return null
       case 'query.explain':
         return queries.explain(requestId, as<ExplainInput>(payload))
+      case 'session.list':
+        return sessionWatch(this.deps).list(as<SessionListInput>(payload))
+      case 'session.terminate':
+        return sessionWatch(this.deps).terminate(as<SessionTerminateInput>(payload))
       case 'transaction.begin': {
         const { connectionId, database, consoleId } = as<{
           connectionId: string

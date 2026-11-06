@@ -27,6 +27,8 @@ import type {
   RelationKind,
   RowMutation,
   ServerInfo,
+  ServerSessionInfo,
+  SessionDriver,
   StreamResult,
   TableExportDriver,
   DriverStreamInput,
@@ -57,6 +59,10 @@ function toBytes(value: unknown): number | null {
   if (value === null || value === undefined) return null
   const parsed = Number(value)
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
+function toIsoString(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : value
 }
 
 export interface PostgresSettings {
@@ -176,6 +182,28 @@ const COLUMN_SQL = `
 const SERVER_INFO_SQL =
   "select current_setting('server_version') as version, current_database() as database, current_user as user"
 
+/**
+ * Other client backends, newest activity last. `activity_start` is when the
+ * current statement (or transaction) began, falling back to the login time so
+ * an idle session still reports a sensible age.
+ */
+const SESSIONS_SQL = `
+select pid::text as id,
+       usename as "user",
+       datname as database,
+       application_name as application,
+       host(client_addr) as client,
+       state,
+       backend_start as started_at,
+       coalesce(query_start, xact_start, backend_start) as activity_start,
+       greatest(0, floor(extract(epoch from (now() - coalesce(query_start, xact_start, backend_start))) * 1000))::bigint as duration_ms,
+       left(coalesce(query, ''), 500) as query,
+       nullif(concat_ws(':', wait_event_type, wait_event), '') as wait_event
+from pg_stat_activity
+where pid <> pg_backend_pid()
+  and backend_type = 'client backend'
+order by activity_start asc`
+
 function sslOptions(mode: SslMode): false | { rejectUnauthorized: boolean } {
   if (mode === 'disable') return false
   // `require` mirrors libpq: TLS without CA verification. `verify-full` verifies
@@ -278,7 +306,8 @@ export class PostgresDriver
     TableExportDriver,
     TransactionalDriver,
     ObjectCatalogDriver,
-    DdlDriver
+    DdlDriver,
+    SessionDriver
 {
   readonly kind = 'postgresql'
   readonly capabilities: DriverCapabilities = { transactions: true, returning: true, identifierQuote: '"' }
@@ -656,6 +685,53 @@ ${body}
     } finally {
       client.release(destroyClient)
     }
+  }
+
+  async listSessions(): Promise<readonly ServerSessionInfo[]> {
+    const rows = await this.runScalarQuery<{
+      id: string
+      user: string | null
+      database: string | null
+      application: string | null
+      client: string | null
+      state: string | null
+      started_at: Date | string | null
+      duration_ms: string | number | null
+      query: string | null
+      wait_event: string | null
+    }>(SESSIONS_SQL)
+    return rows.map((row) => {
+      const session: { -readonly [K in keyof ServerSessionInfo]: ServerSessionInfo[K] } = { id: row.id }
+      if (row.user !== null) session.user = row.user
+      if (row.database !== null) session.database = row.database
+      if (row.application) session.application = row.application
+      if (row.client !== null) session.client = row.client
+      if (row.state !== null) session.state = row.state
+      if (row.started_at !== null) session.startedAt = toIsoString(row.started_at)
+      if (row.duration_ms !== null) session.durationMs = Number(row.duration_ms)
+      if (row.query) session.query = row.query
+      if (row.wait_event !== null) session.waitEvent = row.wait_event
+      return session
+    })
+  }
+
+  async terminateSession(sessionId: string): Promise<void> {
+    const pid = Number(sessionId)
+    if (!Number.isSafeInteger(pid) || pid <= 0) {
+      throw new DataForgeError('invalid_request', 'Session id must be a positive integer.')
+    }
+    const rows = await this.runScalarQuery<{ terminated: boolean | null }>(
+      'select pg_terminate_backend($1) as terminated',
+      [pid],
+    )
+    if (!rows[0]?.terminated) {
+      throw new DataForgeError('not_found', 'That PostgreSQL session is no longer running.')
+    }
+  }
+
+  async currentUser(): Promise<string | undefined> {
+    const rows = await this.runScalarQuery<{ name: string }>('select current_user as name')
+    return rows[0]?.name
   }
 
   async dispose(): Promise<void> {

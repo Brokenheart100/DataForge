@@ -15,6 +15,8 @@ import type {
   ObjectStats,
   RelationInfo,
   ServerInfo,
+  ServerSessionInfo,
+  SessionDriver,
 } from '../../domain/driver'
 import { DataForgeError } from '../../domain/errors'
 import { toCellValue } from '../cells'
@@ -34,6 +36,12 @@ const TYPE_NAMES: ReadonlyMap<number, string> = new Map([
 ])
 
 const SERVER_INFO_SQL = 'select version() as version, database() as db, current_user() as user'
+
+const PROCESSLIST_SQL = `
+  select id, user, host, db, command, time, state, info
+  from information_schema.processlist
+  where id <> connection_id()
+  order by time desc, id asc`
 
 const OBJECT_SEARCH_SQL = `
   select table_schema, table_name, table_type
@@ -157,7 +165,7 @@ function commandOf(sql: string): string {
   return keyword ? keyword.toUpperCase() : 'OK'
 }
 
-export class MySqlDriver implements DatabaseDriver, ObjectCatalogDriver {
+export class MySqlDriver implements DatabaseDriver, ObjectCatalogDriver, SessionDriver {
   readonly kind = 'mysql'
   readonly capabilities: DriverCapabilities = { transactions: true, returning: false, identifierQuote: '`' }
 
@@ -288,6 +296,48 @@ export class MySqlDriver implements DatabaseDriver, ObjectCatalogDriver {
       isPrimaryKey: Number(row[5] ?? 0) === 1,
       generated: Number(row[6] ?? 0) === 1,
     }))
+  }
+
+  async listSessions(): Promise<readonly ServerSessionInfo[]> {
+    const rows = await this.queryValues(PROCESSLIST_SQL, [], 500)
+    const sessions: ServerSessionInfo[] = []
+    for (const row of rows) {
+      const id = row[0] === null || row[0] === undefined ? '' : String(row[0])
+      if (id === '') continue
+      const session: { -readonly [K in keyof ServerSessionInfo]: ServerSessionInfo[K] } = { id }
+      if (row[1] !== null && row[1] !== undefined) session.user = String(row[1])
+      if (row[2] !== null && row[2] !== undefined) session.client = String(row[2])
+      if (row[3] !== null && row[3] !== undefined) session.database = String(row[3])
+      const state = row[6] !== null && row[6] !== undefined && row[6] !== '' ? row[6] : row[4]
+      if (state !== null && state !== undefined) session.state = String(state)
+      if (row[5] !== null && row[5] !== undefined) session.durationMs = Number(row[5]) * 1000
+      if (row[7] !== null && row[7] !== undefined) session.query = String(row[7])
+      sessions.push(session)
+    }
+    return sessions
+  }
+
+  async terminateSession(sessionId: string): Promise<void> {
+    const id = Number(sessionId)
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      throw new DataForgeError('invalid_request', 'Session id must be a positive integer.')
+    }
+    try {
+      // KILL is a text-protocol statement; MySQL rejects it inside a prepared statement.
+      await this.pool.query(`kill connection ${id}`)
+    } catch (error) {
+      const code = (error as MySqlError).code
+      if (code === 'ER_NO_SUCH_THREAD') {
+        throw new DataForgeError('not_found', 'That MySQL session is no longer running.')
+      }
+      throw mapMySqlError(error)
+    }
+  }
+
+  async currentUser(): Promise<string | undefined> {
+    const rows = await this.queryValues("select substring_index(current_user(), '@', 1) as name", [], 1)
+    const name = rows[0]?.[0]
+    return name === null || name === undefined ? undefined : String(name)
   }
 
   async dispose(): Promise<void> {

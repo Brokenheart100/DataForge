@@ -7,19 +7,20 @@ Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio
 (extension id `dataforge.dataforge-ide`) or from the VSIX on the releases page.
 
 A PostgreSQL-first database IDE for VS Code with a neo-brutalist workbench.
-Phases 1–3 are complete and Phase 4 added a second driver: manage connections,
-browse schemas/tables/views/columns, run SQL, read results, edit table rows in a
-grid with server-side filters, multi-column sorting, paste-as-rows, transactional
-commit, optimistic locking and CSV export, import CSV/JSON files through a
-mapping wizard into existing tables, preview and apply schema changes
-(create table, add or alter a column, index, drop) behind a typed confirmation,
-connect through an SSH tunnel, and query a read-only SQL Server alongside
-PostgreSQL and MySQL. Drivers advertise a capability matrix, so unsupported
-actions are hidden instead of failing. SQL completion comes from VS Code's own
-language services. PostgreSQL gets the full feature set; MySQL covers
-connections, metadata and queries, and SQL Server is query-only. The explorer
-nests `Databases → database → schemas → tables`: extra databases open read-only,
-and a connection can be pointed at another database in one click.
+It manages connections, browses schemas/tables/views/columns, runs SQL, reads
+results, edits table rows in a grid with server-side filters, multi-column
+sorting, paste-as-rows, transactional commit, optimistic locking and CSV export,
+imports CSV/JSON files through a mapping wizard into existing tables, previews
+and applies schema changes (create table, add or alter a column, index, drop)
+behind a typed confirmation, connects through an SSH tunnel, queries a read-only
+SQL Server alongside PostgreSQL and MySQL, and adds an operations view: inspect
+other sessions and terminate your own, read `EXPLAIN` plans as a tree, and jump
+to the slowest recorded queries. Drivers advertise a capability matrix, so
+unsupported actions are hidden instead of failing. SQL completion comes from
+VS Code's own language services. PostgreSQL gets the full feature set; MySQL
+covers connections, metadata and queries, and SQL Server is query-only. The
+explorer nests `Databases → database → schemas → tables`: extra databases open
+read-only, and a connection can be pointed at another database in one click.
 
 ```text
 extension/           VS Code extension (Node 22+, CommonJS bundle via esbuild)

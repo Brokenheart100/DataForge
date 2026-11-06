@@ -173,12 +173,14 @@ PostgreSQL 实现 → 树搜索与 DDL 面板 → 测试。
 
 目标：会话/锁面板，慢查询与执行计划可视化。
 
+状态：✅ 实现完成（会话监视与终止、执行计划树、慢查询入口；锁视图与连接诊断留待后续）。
+
 ### 11.1 Todo List
 
-- [ ] `SessionMonitor`：`pg_stat_activity` / `information_schema.processlist`
-- [ ] 终止会话（确认 + 权限校验）
-- [ ] 执行计划可视化（JSON → 树/表）
-- [ ] 慢查询入口：历史按耗时排序并跳转
+- [x] `SessionMonitor`：PostgreSQL 走 `pg_stat_activity`（排除自身 backend 与非客户端进程），MySQL 走 `information_schema.processlist`；统一 `ServerSessionInfo`，超过 60 秒标记 `longRunning`，并返回当前角色
+- [x] 终止会话（确认 + 权限校验）：必须 `confirm: true`，且只能终止与 `currentUser` 相同的会话；PostgreSQL 用 `pg_terminate_backend($1)`，MySQL 用文本 `KILL CONNECTION <id>`
+- [x] 执行计划可视化（JSON → 树/表）：`domain/explain.ts` 把 `EXPLAIN (FORMAT JSON)` 解析为 `ExplainPlanNodeDto`，`PlanTree.vue` 递归渲染节点、索引、代价与行数，原始 JSON 作为回退
+- [x] 慢查询入口：历史按耗时排序并跳转：命令 `dataforge.showSlowQueries` 取成功历史中耗时前 50 条，选中后替换编辑器内容或预填工作台
 
 ## 12. 工程化待办
 

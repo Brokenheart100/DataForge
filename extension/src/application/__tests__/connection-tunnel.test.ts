@@ -141,6 +141,7 @@ describe('ConnectionService SSH tunnels', () => {
       schemaChanges: false,
       objectBrowser: false,
       databaseList: true,
+      sessions: false,
     })
 
     await service.disconnect('c1')

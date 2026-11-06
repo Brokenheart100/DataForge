@@ -156,6 +156,7 @@ class DemoTransport implements Transport {
           schemaChanges: true,
           objectBrowser: true,
           databaseList: true,
+          sessions: true,
         },
       })),
       prefs: { maxRows: 500, statementTimeoutMs: 30_000, connectTimeoutMs: 10_000 },
@@ -315,21 +316,105 @@ class DemoTransport implements Transport {
             [
               {
                 Plan: {
-                  'Node Type': 'Seq Scan',
-                  'Relation Name': 'orders',
-                  'Startup Cost': 0,
-                  'Total Cost': 24.5,
+                  'Node Type': 'Nested Loop',
+                  'Join Type': 'Inner',
+                  'Startup Cost': 0.15,
+                  'Total Cost': 31.2,
                   'Plan Rows': 24,
                   'Plan Width': 42,
+                  Plans: [
+                    {
+                      'Node Type': 'Seq Scan',
+                      'Relation Name': 'orders',
+                      'Startup Cost': 0,
+                      'Total Cost': 24.5,
+                      'Plan Rows': 24,
+                      'Plan Width': 42,
+                    },
+                    {
+                      'Node Type': 'Index Scan',
+                      'Relation Name': 'customers',
+                      'Index Name': 'customers_pkey',
+                      'Startup Cost': 0.15,
+                      'Total Cost': 6.7,
+                      'Plan Rows': 1,
+                      'Plan Width': 8,
+                    },
+                  ],
                 },
               },
             ],
             null,
             2,
           ),
+          root: {
+            nodeType: 'Nested Loop',
+            joinType: 'Inner',
+            startupCost: 0.15,
+            totalCost: 31.2,
+            planRows: 24,
+            planWidth: 42,
+            children: [
+              {
+                nodeType: 'Seq Scan',
+                relation: 'orders',
+                startupCost: 0,
+                totalCost: 24.5,
+                planRows: 24,
+                planWidth: 42,
+                children: [],
+              },
+              {
+                nodeType: 'Index Scan',
+                relation: 'customers',
+                indexName: 'customers_pkey',
+                startupCost: 0.15,
+                totalCost: 6.7,
+                planRows: 1,
+                planWidth: 8,
+                children: [],
+              },
+            ],
+          },
           durationMs: 4,
         })
         return
+      case 'session.list':
+        succeed({
+          longRunningMs: 60_000,
+          currentUser: 'analytics',
+          sessions: [
+            {
+              id: '4242',
+              user: 'analytics',
+              database: 'analytics',
+              application: 'psql',
+              client: '10.0.0.5',
+              state: 'active',
+              durationMs: 12_000,
+              query: `select count(*) from orders where created_at > now() - interval '1 day'`,
+              longRunning: false,
+            },
+            {
+              id: '4301',
+              user: 'analytics',
+              database: 'analytics',
+              application: 'DataForge',
+              client: '10.0.0.9',
+              state: 'idle in transaction',
+              durationMs: 184_000,
+              query: 'begin',
+              waitEvent: 'Client:ClientRead',
+              longRunning: true,
+            },
+          ],
+        })
+        return
+      case 'session.terminate': {
+        const payload = request.payload as { sessionId: string }
+        succeed({ sessionId: payload.sessionId })
+        return
+      }
       case 'data.page': {
         const payload = request.payload as {
           filters?: { column: string; operator: string; value?: CellValue }[]

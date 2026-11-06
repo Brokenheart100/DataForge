@@ -63,8 +63,14 @@ adds a MySQL adapter behind the same driver ports:
   `DataForge: Query History` reloads one into the editor. The status bar shows
   the duration of the last run and slow queries (`dataforge.slowQueryMs`) are
   logged.
-- **EXPLAIN** — one read-only statement at a time, rendered as the JSON plan
-  PostgreSQL returns.
+- **EXPLAIN** — one read-only statement at a time, rendered as a tree of nodes
+  (type, relation, index, cost, rows, actual time) with the raw JSON one click
+  away.
+- **Sessions and slow queries** — a sessions panel lists every other backend
+  with state, duration, query and wait event; long-running ones are flagged and
+  you can terminate a session that belongs to your own role after confirming.
+  `DataForge: Slow Queries` opens the slowest successful statements from
+  history and loads the chosen one into the editor.
 - **Transactions** — `Begin transaction` opens a dedicated backend; later runs
   go through it until you commit or roll back, and the host rolls the session
   back on panel close, disconnect or deactivate.

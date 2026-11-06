@@ -21,8 +21,11 @@
  *
  * v7 adds driver capabilities to the connection summary (so the UI hides what a
  * driver cannot do) and the optional SSH tunnel a profile connects through.
+ *
+ * v8 adds the operations view: server session listing/termination and a
+ * structured EXPLAIN plan tree beside the raw JSON text.
  */
-export const PROTOCOL_VERSION = 7
+export const PROTOCOL_VERSION = 8
 
 export type SslMode = 'disable' | 'require' | 'verify-full'
 export type ConnectionState = 'disconnected' | 'connected' | 'error'
@@ -54,6 +57,8 @@ export interface DriverCapabilitiesDto {
   schemaChanges: boolean
   objectBrowser: boolean
   databaseList: boolean
+  /** Server session listing and termination (Stage H). */
+  sessions: boolean
 }
 
 /** JSON-safe cell value. Dates arrive as ISO strings, bytea as `\x…`. */
@@ -298,6 +303,71 @@ export interface ExplainInput {
 export interface ExplainResultDto {
   plan: string
   durationMs: number
+  /** Parsed plan tree; absent when the server returned a shape we do not know. */
+  root?: ExplainPlanNodeDto
+}
+
+/** One node of a PostgreSQL EXPLAIN plan, flattened for rendering. */
+export interface ExplainPlanNodeDto {
+  nodeType: string
+  relation?: string
+  alias?: string
+  indexName?: string
+  joinType?: string
+  startupCost?: number
+  totalCost?: number
+  planRows?: number
+  planWidth?: number
+  actualRows?: number
+  actualTotalTime?: number
+  loops?: number
+  filter?: string
+  children: ExplainPlanNodeDto[]
+}
+
+export interface SessionListInput {
+  connectionId: string
+  database?: string
+}
+
+/** One server-side connection as shown in the session monitor. */
+export interface ServerSessionDto {
+  /** Backend id: PostgreSQL pid, MySQL connection id. */
+  id: string
+  user?: string
+  database?: string
+  application?: string
+  client?: string
+  state?: string
+  /** ISO timestamp when the session started, when the server reports it. */
+  startedAt?: string
+  /** Time spent in the current state or transaction, in milliseconds. */
+  durationMs?: number
+  /** Current or last statement, truncated by the host. */
+  query?: string
+  waitEvent?: string
+  /** True when the session has been running longer than the host threshold. */
+  longRunning: boolean
+}
+
+export interface SessionListDto {
+  sessions: ServerSessionDto[]
+  /** Sessions older than this are flagged `longRunning`. */
+  longRunningMs: number
+  /** Role that owns this connection; only its sessions may be terminated. */
+  currentUser?: string
+}
+
+export interface SessionTerminateInput {
+  connectionId: string
+  database?: string
+  sessionId: string
+  /** The webview asks the user first; the host refuses without it. */
+  confirm: boolean
+}
+
+export interface SessionTerminateDto {
+  sessionId: string
 }
 
 export interface DataExportInput {
@@ -565,6 +635,9 @@ export interface RequestCatalogue {
   'query.execute': { input: QueryInput; output: QueryResultDto }
   'query.cancel': { input: { targetRequestId: string }; output: null }
   'query.explain': { input: ExplainInput; output: ExplainResultDto }
+  'session.list': { input: SessionListInput; output: SessionListDto }
+  /** Confirmation is required; only the connection's own role may be targeted. */
+  'session.terminate': { input: SessionTerminateInput; output: SessionTerminateDto }
   'transaction.begin': { input: { connectionId: string; database?: string; consoleId?: string }; output: SessionStateDto }
   'transaction.commit': { input: { connectionId: string; consoleId?: string }; output: SessionStateDto }
   'transaction.rollback': { input: { connectionId: string; consoleId?: string }; output: SessionStateDto }
@@ -609,6 +682,8 @@ export const REQUEST_TYPES = [
   'query.execute',
   'query.cancel',
   'query.explain',
+  'session.list',
+  'session.terminate',
   'transaction.begin',
   'transaction.commit',
   'transaction.rollback',

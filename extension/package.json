@@ -95,6 +95,12 @@
         "icon": "$(history)"
       },
       {
+        "command": "dataforge.showSlowQueries",
+        "title": "Slow Queries",
+        "category": "DataForge",
+        "icon": "$(watch)"
+      },
+      {
         "command": "dataforge.clearHistory",
         "title": "Clear Query History",
         "category": "DataForge"

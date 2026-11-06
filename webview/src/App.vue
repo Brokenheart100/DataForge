@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, Database, Gauge, Loader2, Plug, Play, Plus, RefreshCw, Square, Table2, Unplug, Zap } from 'lucide-vue-next'
+import { AlertTriangle, Database, Gauge, Loader2, Plug, Play, Plus, RefreshCw, Square, Table2, Unplug, Users, Zap } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import type { ConnectionSummary } from '@shared/protocol'
@@ -11,12 +11,16 @@ import DdlPanel from '@/components/DdlPanel.vue'
 import DataGrid from '@/components/DataGrid.vue'
 import FilterBar from '@/components/FilterBar.vue'
 import PendingBar from '@/components/PendingBar.vue'
+import PlanTree from '@/components/PlanTree.vue'
 import ResultTable from '@/components/ResultTable.vue'
+import SessionPanel from '@/components/SessionPanel.vue'
 import { useDataEditorStore } from '@/stores/data-editor'
+import { useSessionsStore } from '@/stores/sessions'
 import { useWorkbenchStore } from '@/stores/workbench'
 
 const store = useWorkbenchStore()
 const dataEditor = useDataEditorStore()
+const sessionStore = useSessionsStore()
 
 const dialogOpen = ref(false)
 const editing = ref<ConnectionSummary>()
@@ -94,6 +98,12 @@ async function runExplain(): Promise<void> {
   const target = editor.value
   const selection = target ? target.value.slice(target.selectionStart, target.selectionEnd) : ''
   await store.explainSql(selection)
+}
+
+function openSessions(): void {
+  const connectionId = store.activeConnectionId
+  if (!connectionId) return
+  sessionStore.show(connectionId, store.scopedDatabase ?? undefined)
 }
 
 async function toggleConnection(connection: ConnectionSummary): Promise<void> {
@@ -290,6 +300,11 @@ const stateChip = (connection: ConnectionSummary): string => {
               <Gauge v-else :size="12" />
               Explain
             </button>
+            <button v-if="store.capabilities?.sessions !== false" class="df-btn df-btn-ghost" type="button"
+              :disabled="!store.activeConnectionId" @click="openSessions">
+              <Users :size="12" />
+              Sessions
+            </button>
 
             <template v-if="store.capabilities?.transactions !== false">
               <button v-if="!store.transactionOpen" class="df-btn df-btn-ghost" type="button"
@@ -346,7 +361,8 @@ const stateChip = (connection: ConnectionSummary): string => {
                 <span class="text-[11px] text-muted">{{ store.explainResult.durationMs }} ms</span>
                 <button class="df-btn df-btn-ghost ml-auto" type="button" @click="store.clearResult()">Close</button>
               </div>
-              <pre class="df-code m-0 max-h-72 overflow-auto p-2 text-[11px]">{{ store.explainResult.plan }}</pre>
+              <PlanTree v-if="store.explainResult.root" :node="store.explainResult.root" class="max-h-72 overflow-auto p-2" />
+              <pre v-else class="df-code m-0 max-h-72 overflow-auto p-2 text-[11px]">{{ store.explainResult.plan }}</pre>
             </div>
 
             <div v-if="store.result" class="df-panel flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -414,6 +430,7 @@ const stateChip = (connection: ConnectionSummary): string => {
 
     <ConnectionDialog v-model:open="dialogOpen" :connection="editing" />
     <DdlPanel />
+    <SessionPanel v-if="sessionStore.open" />
 
     <div class="pointer-events-none fixed bottom-3 right-3 z-50 flex w-72 flex-col gap-2">
       <div v-for="toast in store.toasts" :key="toast.id" class="df-panel pointer-events-auto px-2 py-1.5 text-[11px]"

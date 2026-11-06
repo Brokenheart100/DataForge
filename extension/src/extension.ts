@@ -14,6 +14,7 @@ import { QuerySessionService } from './application/query-session-service'
 import { ConsoleService } from './application/console-service'
 import { ObjectService } from './application/object-service'
 import { DdlService } from './application/ddl-service'
+import { SessionMonitor } from './application/session-monitor'
 import { buildDdlStatements } from './infrastructure/postgres/ddl-sql'
 import { SchemaService } from './application/schema-service'
 import type { ConnectionConfig, ConnectionCredentials, ConnectionProfile } from './domain/connection'
@@ -76,6 +77,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   })
   const consoles = new ConsoleService({ connections, queries, sessions, logger })
   const objects = new ObjectService({ connections, logger })
+  const monitor = new SessionMonitor({ connections, logger })
   const ddl = new DdlService({
     connections,
     sessions,
@@ -104,6 +106,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     dataEditor,
     exporter,
     importer,
+    monitor,
     pickExportPath: (suggestedName) => pickExportPath(suggestedName),
     logger,
     sessions,
@@ -317,6 +320,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }))
       const picked = await vscode.window.showQuickPick(items, {
         placeHolder: 'Query history — pick a statement to load',
+        matchOnDescription: true,
+      })
+      if (!picked) return
+      const editor: vscode.TextEditor | undefined = vscode.window.activeTextEditor
+      if (editor) {
+        await editor.edit((builder) => builder.replace(fullDocumentRange(editor.document), picked.entry.sql))
+        return
+      }
+      openWorkbench().prefill(picked.entry.sql, { connectionId: picked.entry.connectionId })
+    }),
+
+    vscode.commands.registerCommand('dataforge.showSlowQueries', async () => {
+      const entries = (await history.list())
+        .filter((entry) => entry.success)
+        .sort((left, right) => right.durationMs - left.durationMs)
+      if (entries.length === 0) {
+        await vscode.window.showInformationMessage('DataForge: no successful queries have been recorded yet.')
+        return
+      }
+      const items = entries.slice(0, 50).map((entry) => ({
+        label: `${entry.durationMs} ms · ${collapse(entry.sql)}`,
+        description: `${entry.connectionName} · ${new Date(entry.executedAt).toLocaleString()}`,
+        detail: entry.sql.slice(0, 500),
+        entry,
+      }))
+      const picked = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Slowest queries — pick one to load',
         matchOnDescription: true,
       })
       if (!picked) return

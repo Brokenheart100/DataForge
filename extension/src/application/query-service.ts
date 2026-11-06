@@ -2,6 +2,7 @@ import type { CellValue, ExplainInput, ExplainResultDto, QueryInput, QueryResult
 
 import type { DriverQueryResult } from '../domain/driver'
 import { DataForgeError, wrapError } from '../domain/errors'
+import { parsePlanTree } from '../domain/explain'
 import type { ConnectionService } from './connection-service'
 import type { HistoryRecorder } from './history-service'
 import type { Logger } from './ports'
@@ -129,8 +130,9 @@ export class QueryService {
   /**
    * Runs `EXPLAIN (FORMAT JSON)` on a single read-only statement.
    *
-   * The plan is returned as text: rendering PostgreSQL's JSON plan tree is a UI
-   * concern the webview does not need (and the JSON is the stable contract).
+   * Both the raw JSON text and a structured tree are returned: the tree drives
+   * the visual plan, the text stays available as a fallback for shapes the
+   * parser does not recognise.
    */
   async explain(requestId: string, input: ExplainInput): Promise<ExplainResultDto> {
     if (this.running.has(requestId)) {
@@ -150,7 +152,13 @@ export class QueryService {
         maxRows: 1,
         signal: controller.signal,
       })
-      return { plan: prettyPlan(result.rows[0]?.[0]), durationMs: Date.now() - startedAt }
+      const cell = result.rows[0]?.[0]
+      const root = parsePlanTree(cell)
+      return {
+        plan: prettyPlan(cell),
+        durationMs: Date.now() - startedAt,
+        ...(root === undefined ? {} : { root }),
+      }
     } catch (error) {
       throw wrapError('query_failed', 'EXPLAIN failed', error)
     } finally {

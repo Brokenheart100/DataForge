@@ -23,9 +23,10 @@
 库切换、多控制台、SQL 执行与结果网格、取消、对象搜索/DDL/统计、数据编辑（事务化提交
 + `xmin` 乐观锁、服务端筛选与多列排序、粘贴、生成列只读、JSON 预览、跳页）、CSV 导出、
 CSV/JSON 导入、结构变更（预览 + 风险分级 + 输入确认 + schema diff API）、补全、格式化、
-历史、EXPLAIN、显式事务会话、状态栏计时、CI/CD 与 Marketplace 发布。
+历史、EXPLAIN、显式事务会话、状态栏计时、运维视图（会话监视/终止、执行计划树、
+慢查询入口）、CI/CD 与 Marketplace 发布。
 
-关键差距：没有会话/锁面板与执行计划可视化（阶段 H）；schema diff 缺界面；
+关键差距：锁视图与连接诊断未做（阶段 H 其余部分）；schema diff 缺界面；
 MySQL 的数据编辑/导出/事务/结构变更未开启；SQL Server 只读；SQLite 未支持。
 
 ## 3. 目标架构
@@ -58,14 +59,15 @@ MySQL 的数据编辑/导出/事务/结构变更未开启；SQL Server 只读；
 | `ObjectService` | `application/object-service.ts` | 对象搜索、DDL 读取、依赖与统计（大小/行数/索引） |
 | `DdlService` | `application/ddl-service.ts` | 结构变更：计划校验、风险分级、确认、只读/事务保护、schema diff（已交付） |
 | `ImportService` | `application/import-service.ts` | CSV/JSON/SQL 流式导入：列映射、类型转换、错误行报告、批提交 |
-| `SessionMonitor` | `application/session-monitor.ts` | 会话/锁面板，终止后端（PG `pg_terminate_backend`，MySQL `KILL`） |
+| `SessionMonitor` | `application/session-monitor.ts` | 会话列表、长事务标记、终止后端（PG `pg_terminate_backend`，MySQL `KILL`）；只允许终止当前角色会话（已交付） |
 | `Tunnel` | `infrastructure/ssh/tunnel.ts` | SSH 本地端口转发，供驱动连 `127.0.0.1:<port>`（已交付） |
 
 驱动端口保持小而稳：`DatabaseDriver`（查询/元数据）＋ 可选能力
-`DataEditingDriver`、`TableExportDriver`、`TransactionalDriver`、`DdlDriver`（新增，
-提供 `applyDdl`）。能力缺失时服务层抛可读错误，UI 隐藏入口。连接摘要携带
-`capabilities`（`query/dataEditing/exportCsv/transactions/schemaChanges/objectBrowser/databaseList`），
-由 `ConnectionService` 按角色接口是否存在推导，Webview 只据此显示或禁用入口。
+`DataEditingDriver`、`TableExportDriver`、`TransactionalDriver`、`DdlDriver`（提供
+`applyDdl`）、`SessionDriver`（`listSessions`/`terminateSession`/`currentUser`）。能力缺失时
+服务层抛可读错误，UI 隐藏入口。连接摘要携带
+`capabilities`（`query/dataEditing/exportCsv/transactions/schemaChanges/objectBrowser/databaseList/sessions`），
+由 `ConnectionService` 按角色接口是否存在（且为函数）推导，Webview 只据此显示或禁用入口。
 
 ### 3.2 模块清单（新增与改动）
 
@@ -81,7 +83,7 @@ MySQL 的数据编辑/导出/事务/结构变更未开启；SQL Server 只读；
 | `application/ddl-service.ts` | 已交付 | 计划校验、风险分级/确认、只读与事务保护、`schema.diff`；SQL 由方言模块生成 |
 | `infrastructure/postgres/ddl-sql.ts` | 已交付 | 建表/加列/改列/建索引/删表的带引用 SQL 与风险说明 |
 | `application/import-service.ts` | 已交付 | CSV/JSON 流式解析、列映射预览、分批提交（默认 1000 行）、错误行收集（最多 100 行）、可取消 |
-| `application/session-monitor.ts` | 新增 | 会话列表、长事务标记、终止操作 |
+| `application/session-monitor.ts` | 已交付 | 会话列表、`longRunning` 标记（默认 60 秒）、确认与归属校验、终止操作 |
 | `infrastructure/postgres/*` | 扩展 | `ObjectCatalogDriver`（搜索/DDL/统计）、`TransactionalDriver` |
 | `infrastructure/mysql/*` | 扩展 | 同上；编辑/导出/事务逐步补齐 |
 | `infrastructure/ssh/tunnel.ts` | 新增 | `ssh2` 客户端 + 本地转发 + 生命周期 |
@@ -89,7 +91,7 @@ MySQL 的数据编辑/导出/事务/结构变更未开启；SQL Server 只读；
 | `presentation/console-panel.ts` | 新增 | 控制台标签与结果渲染的宿主侧协调 |
 | `webview/src/views/*` | 新增 | Console、Objects、Import、Sessions 等视图 |
 
-## 4. 协议 v7
+## 4. 协议 v8
 
 信封不变：`{kind:'request', id, type, payload}`，响应 `ok/data` 或 `error{code,message}`
 （错误可带 `conflictingKeys`）。新增请求分组：
@@ -102,11 +104,11 @@ MySQL 的数据编辑/导出/事务/结构变更未开启；SQL Server 只读；
 | object | `object.search`、`object.ddl`、`object.stats`、`object.openInEditor`（已交付） | 对象搜索、DDL、统计、在编辑器打开 |
 | ddl | `ddl.preview`、`ddl.apply`、`ddl.openInEditor`、`schema.diff`（已交付） | 结构变更预览/执行、在编辑器打开、schema 差异 |
 | import | `import.preview`、`import.start`、`import.cancel`（已交付） | 导入向导与后台任务；进度经 `import.progress` 事件推送 |
-| session | `session.list`、`session.terminate` | 运维视图 |
-| data | `data.*`、`transaction.*`、`query.explain` | 现有能力，输入统一增加可选 `database`（已交付）；`data.page` 支持 `filters` 与多列 `orderBy` |
+| session | `session.list`、`session.terminate`（已交付） | 运维视图：会话列表与终止 |
+| data | `data.*`、`transaction.*`、`query.explain` | 现有能力，输入统一增加可选 `database`（已交付）；`data.page` 支持 `filters` 与多列 `orderBy`；`query.explain` 额外返回结构化 `root` |
 
 所有输入中的 `database` 可选（缺省=连接主库），保证 0.1.x 客户端仍可工作；
-`PROTOCOL_VERSION` 已升到 7（v7 = 驱动能力矩阵 + 可选 SSH 隧道）。
+`PROTOCOL_VERSION` 已升到 8（v7 = 驱动能力矩阵 + 可选 SSH 隧道；v8 = 会话与结构化执行计划）。
 
 作用域规则（D1.2 已落地）：资源树可按库嵌套展开，副库使用独立 pool 且**只读**；
 写请求（`query.execute` 中的 DML、`data.commit`）在副库上被服务层拒绝，并提示
@@ -126,6 +128,13 @@ SSH 隧道（G 已落地）：`connection-service` 在连接前调用 `TunnelFac
 host/port 换成 `127.0.0.1:<随机端口>`；驱动与作用域池完全不知道 SSH 存在，断开时
 `disconnect` 释放驱动后再关闭隧道。`ConnectionSummary.capabilities` 在连接成功后返回，
 供 Webview 隐藏 Data/导入/导出/Schema/事务入口；SQL Server 只暴露查询、对象浏览与数据库列表。
+
+运维视图（H 已落地）：`SessionDriver` 提供 `listSessions`/`terminateSession`/`currentUser`；
+PostgreSQL 读 `pg_stat_activity`（排除自身 backend 与非客户端进程，`query_start` 起算时长），
+MySQL 读 `information_schema.processlist` 并以 `KILL CONNECTION` 终止。服务层要求显式
+`confirm` 且目标会话与当前角色一致，Webview 先内联确认再发送请求。`query.explain` 同时
+返回格式化文本与 `ExplainPlanNodeDto` 树（节点类型、关系/索引、代价、行数、实际耗时），
+`PlanTree.vue` 递归展示；慢查询命令按历史耗时取前 50 条并复用历史跳转逻辑。
 
 ## 5. 生命周期与并发
 

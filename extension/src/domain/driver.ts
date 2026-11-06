@@ -74,6 +74,41 @@ export interface TransactionalDriver extends DatabaseDriver {
   openSession(): Promise<DriverSession>
 }
 
+/**
+ * One backend connection as the operations view sees it. Durations are
+ * milliseconds; dates are ISO strings so they can cross the protocol unchanged.
+ */
+export interface ServerSessionInfo {
+  readonly id: string
+  readonly user?: string
+  readonly database?: string
+  readonly application?: string
+  readonly client?: string
+  readonly state?: string
+  readonly startedAt?: string
+  readonly durationMs?: number
+  readonly query?: string
+  readonly waitEvent?: string
+}
+
+/** Drivers that can list and terminate other backend sessions. */
+export interface SessionDriver extends DatabaseDriver {
+  listSessions(): Promise<readonly ServerSessionInfo[]>
+  /** Terminates one backend; the service checks ownership first. */
+  terminateSession(sessionId: string): Promise<void>
+  /** Role owning this connection, used to reject foreign sessions. */
+  currentUser(): Promise<string | undefined>
+}
+
+export function isSessionDriver(driver: DatabaseDriver): driver is SessionDriver {
+  const candidate = driver as Partial<SessionDriver>
+  return (
+    typeof candidate.listSessions === 'function' &&
+    typeof candidate.terminateSession === 'function' &&
+    typeof candidate.currentUser === 'function'
+  )
+}
+
 export interface DatabaseDriver {
   readonly kind: ConnectionKind
   /** Optional: adapters advertise what the UI may offer; absent means nothing beyond queries. */

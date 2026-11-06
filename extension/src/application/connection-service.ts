@@ -10,6 +10,7 @@ import type {
   DataEditingDriver,
   DdlDriver,
   ObjectCatalogDriver,
+  SessionDriver,
   TableExportDriver,
   TransactionalDriver,
 } from '../domain/driver'
@@ -397,7 +398,8 @@ export class ConnectionService {
       Partial<TableExportDriver> &
       Partial<TransactionalDriver> &
       Partial<DdlDriver> &
-      Partial<ObjectCatalogDriver>
+      Partial<ObjectCatalogDriver> &
+      Partial<SessionDriver>
     return {
       query: true,
       dataEditing:
@@ -409,6 +411,10 @@ export class ConnectionService {
       schemaChanges: typeof optional.applyDdl === 'function',
       objectBrowser: typeof optional.objectDdl === 'function',
       databaseList: typeof driver.listDatabases === 'function',
+      sessions:
+        typeof optional.listSessions === 'function' &&
+        typeof optional.terminateSession === 'function' &&
+        typeof optional.currentUser === 'function',
     }
   }
 

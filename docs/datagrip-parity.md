@@ -181,6 +181,29 @@ SQL Server 预设、SSH 字段切换与私钥/passphrase 表单。全量 200 个
 已知缺口：没有真实 SQL Server 实例，集成测试尚未实际运行；私钥路径还是文本框；
 SSL 证书校验只有 `disable/require/verify-full` 三档，未做证书文件选择；SQLite 仍推迟。
 
+### 1.9 已完成：运维视图（D8，0.1.4 开发中）
+
+目标：不离开编辑器就能看到“谁在跑什么、哪条最慢、计划长什么样”。
+
+实现要点：
+
+1. 会话监视：`SessionDriver` 端口统一 PostgreSQL `pg_stat_activity` 与 MySQL
+   `information_schema.processlist` 的差异，服务层过滤自身 backend、标记超过 60 秒的
+   `longRunning`，并返回当前角色。
+2. 终止会话：必须显式确认，且只允许终止与当前角色相同的会话；PostgreSQL 使用
+   `pg_terminate_backend($1)`，MySQL 使用文本 `KILL CONNECTION <id>`，失败映射为可读错误。
+3. 执行计划：`EXPLAIN (FORMAT JSON)` 被解析为 `ExplainPlanNodeDto` 树，
+   `PlanTree.vue` 递归显示节点类型、关系/索引、代价、计划行数与实际耗时；原始 JSON 保留。
+4. 慢查询：`dataforge.showSlowQueries` 从成功历史中取耗时前 50 条，选中后替换编辑器
+   或预填工作台，复用历史命令的跳转方式。
+5. 能力矩阵：`sessions` 能力由驱动角色接口推导，SQL Server 等驱动隐藏会话入口。
+
+验收结果：计划解析 4 个单测、会话监视 6 个单测（确认/归属/缺失/无能力）、路由 3 个单测；
+真实 PostgreSQL 集成测试用第二个连接执行 `pg_sleep(30)`，验证列表、拒绝未确认终止、
+确认后终止并从 `pg_stat_activity` 消失；全量 251 个测试通过（PG 容器，跳过 6 个）。
+
+已知缺口：锁视图、阻塞链与连接诊断未做；没有 `EXPLAIN ANALYZE` 的独立入口（沿用查询结果）。
+
 ## 2. 之后的切片（按依赖排序）
 
 | 阶段 | 能力 | 关键交付 | 依赖 |
@@ -189,7 +212,7 @@ SSL 证书校验只有 `disable/require/verify-full` 三档，未做证书文件
 | D5 | 导入导出 | CSV/JSON/SQL 导入（映射预览、错误行报告）、导出可选列/分隔符/编码 | D4（导入已落地，SQL 导入与导出选项待补） |
 | D6 | 结构与变更 | 新建/修改表对话框、索引/约束编辑、预览 SQL 后执行、简单 schema diff | D3（建表/加列/改列/索引/删表与预览已落地；diff 无 UI、约束编辑待补） |
 | D7 | 数据源广度 | SQL Server（只读）、SSH 隧道与能力矩阵已落地；SQLite、SSL 证书管理待补 | D1.2 |
-| D8 | 运维体验 | 执行计划可视化、慢查询面板、会话/锁查看与终止、连接诊断 | D2 |
+| D8 | 运维体验 | 会话监视/终止、执行计划树、慢查询入口已落地；锁视图与连接诊断待补 | D2 |
 
 ## 3. 原则
 
