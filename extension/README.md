@@ -13,6 +13,9 @@ adds a MySQL adapter behind the same driver ports:
   database rebuilds its pool.
 - **Consoles** — several tabs per connection, each keeping its own SQL, result and
   transaction; closing a console cancels its statement and rolls back its transaction.
+- **Objects** — search tables and views by name (`Search Objects`), read a table's
+  rebuilt DDL or a view's definition (`Show DDL` on a tree node), copy it or open it
+  in an editor tab, and inspect total size, row estimate and index sizes.
 - **SQL workbench** — run a statement, see the command tag, row count, duration
   and notices in a dense result grid. Results are capped (default 500 rows) so a
   stray `select *` cannot flood the extension host.

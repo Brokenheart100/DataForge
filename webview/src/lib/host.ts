@@ -279,6 +279,35 @@ class DemoTransport implements Transport {
           returnedKeys: [],
         })
         return
+      case 'object.search':
+        succeed({
+          objects: [
+            { schema: 'public', name: 'orders', kind: 'table' },
+            { schema: 'public', name: 'customers', kind: 'table' },
+          ],
+          truncated: false,
+        })
+        return
+      case 'object.ddl':
+        succeed({
+          ddl:
+            'create table public.orders (\n  id integer primary key,\n  customer text not null,\n  total numeric\n);',
+          cached: false,
+        })
+        return
+      case 'object.stats':
+        succeed({
+          totalBytes: 8192,
+          rowEstimate: 24,
+          indexBytes: 4096,
+          indexes: [
+            { name: 'orders_pkey', bytes: 4096, unique: true, definition: 'create unique index orders_pkey on public.orders using btree (id)' },
+          ],
+        })
+        return
+      case 'object.openInEditor':
+        succeed(null)
+        return
       case 'data.export':
         succeed({ saved: true, path: '~/Downloads/orders.csv', rowCount: 24 })
         return

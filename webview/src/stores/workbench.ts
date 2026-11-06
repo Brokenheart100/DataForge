@@ -9,6 +9,7 @@ import type {
   ConnectionTestTarget,
   ErrorDto,
   ExplainResultDto,
+  ObjectTargetInput,
   QueryResultDto,
   RelationTarget,
 } from '@shared/protocol'
@@ -63,6 +64,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const pendingRelation = ref<RelationTarget | null>(null)
   /** Database of a relation opened from another database of the same connection. */
   const scopedDatabase = ref<string | null>(null)
+  const ddlOpen = ref(false)
+  const ddlTarget = ref<ObjectTargetInput | null>(null)
+  const ddlText = ref('')
+  const ddlLoading = ref(false)
+  const ddlError = ref<ErrorDto | null>(null)
 
   let toastSequence = 0
   let consoleSequence = 0
@@ -241,6 +247,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
             pushToast('info', 'Loaded the selected relation into the editor.')
           }
         }
+      } else if (event.type === 'object.ddl') {
+        void showDdl(event.payload)
       } else {
         pushToast(event.payload.level, event.payload.message)
       }
@@ -490,6 +498,45 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     pendingRelation.value = null
   }
 
+  /** Opens the read-only DDL viewer for one object. */
+  async function showDdl(target: ObjectTargetInput): Promise<void> {
+    ddlTarget.value = target
+    ddlOpen.value = true
+    ddlText.value = ''
+    ddlError.value = null
+    ddlLoading.value = true
+    try {
+      ddlText.value = (await host.request('object.ddl', target)).ddl
+    } catch (caught) {
+      ddlError.value = describeError(caught)
+    } finally {
+      ddlLoading.value = false
+    }
+  }
+
+  function closeDdl(): void {
+    ddlOpen.value = false
+  }
+
+  async function copyDdl(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(ddlText.value)
+      pushToast('info', 'DDL copied to the clipboard.')
+    } catch {
+      pushToast('warn', 'The clipboard is not available here.')
+    }
+  }
+
+  async function openDdlInEditor(): Promise<void> {
+    if (!ddlTarget.value) return
+    try {
+      await host.request('object.openInEditor', ddlTarget.value)
+      pushToast('info', 'DDL opened in the editor.')
+    } catch (caught) {
+      pushToast('error', describeError(caught).message)
+    }
+  }
+
   return {
     connections,
     prefs,
@@ -515,6 +562,15 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     toasts,
     pendingRelation,
     scopedDatabase,
+    ddlOpen,
+    ddlTarget,
+    ddlText,
+    ddlLoading,
+    ddlError,
+    showDdl,
+    closeDdl,
+    copyDdl,
+    openDdlInEditor,
     initialize,
     refresh,
     setActiveConnection,

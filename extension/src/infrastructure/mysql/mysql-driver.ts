@@ -5,7 +5,17 @@ import type { FieldPacket, Pool, PoolConnection } from 'mysql2/promise'
 
 import type { ColumnDto, SslMode } from '@shared/protocol'
 import type { ConnectionConfig } from '../../domain/connection'
-import type { ColumnInfo, DatabaseDriver, DriverCapabilities, DriverQueryInput, DriverQueryResult, RelationInfo, ServerInfo } from '../../domain/driver'
+import type {
+  ColumnInfo,
+  DatabaseDriver,
+  DriverCapabilities,
+  DriverQueryInput,
+  DriverQueryResult,
+  ObjectCatalogDriver,
+  ObjectStats,
+  RelationInfo,
+  ServerInfo,
+} from '../../domain/driver'
 import { DataForgeError } from '../../domain/errors'
 import { toCellValue } from '../cells'
 
@@ -24,6 +34,25 @@ const TYPE_NAMES: ReadonlyMap<number, string> = new Map([
 ])
 
 const SERVER_INFO_SQL = 'select version() as version, database() as db, current_user() as user'
+
+const OBJECT_SEARCH_SQL = `
+  select table_schema, table_name, table_type
+  from information_schema.tables
+  where table_schema = database() and table_name like ?
+  order by table_name
+  limit ?`
+
+const OBJECT_STATS_SQL = `
+  select data_length, index_length, table_rows
+  from information_schema.tables
+  where table_schema = database() and table_name = ?`
+
+const OBJECT_INDEX_SQL = `
+  select index_name, min(non_unique) as non_unique
+  from information_schema.statistics
+  where table_schema = database() and table_name = ?
+  group by index_name
+  order by index_name`
 
 const SCHEMA_SQL = `
   select schema_name as name
@@ -108,12 +137,26 @@ function relationKind(tableType: string): RelationInfo['kind'] {
   return 'view'
 }
 
+function quoteMySqlIdentifier(name: string): string {
+  if (name.length === 0 || name.includes(String.fromCharCode(0))) {
+    throw new DataForgeError('invalid_request', 'A relation name cannot be empty.')
+  }
+  const escaped = name.split('`').join('``')
+  return '`' + escaped + '`'
+}
+
+function toBytes(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
 function commandOf(sql: string): string {
   const keyword = /^\s*([a-zA-Z]+)/.exec(sql)?.[1]
   return keyword ? keyword.toUpperCase() : 'OK'
 }
 
-export class MySqlDriver implements DatabaseDriver {
+export class MySqlDriver implements DatabaseDriver, ObjectCatalogDriver {
   readonly kind = 'mysql'
   readonly capabilities: DriverCapabilities = { transactions: true, returning: false, identifierQuote: '`' }
 
@@ -176,6 +219,47 @@ export class MySqlDriver implements DatabaseDriver {
   async listDatabases(): Promise<string[]> {
     // MySQL exposes databases as schemas of the same server.
     return this.listSchemas()
+  }
+
+  async searchObjects(query: string, limit: number): Promise<RelationInfo[]> {
+    const rows = await this.queryValues(OBJECT_SEARCH_SQL, [`%${query}%`, Math.max(1, Math.trunc(limit))], limit)
+    return rows.map((row) => ({
+      schema: String(row[0] ?? ''),
+      name: String(row[1] ?? ''),
+      kind: relationKind(String(row[2] ?? '')),
+    }))
+  }
+
+  /** MySQL exposes the original statement directly, so no reconstruction. */
+  async objectDdl(relation: RelationInfo): Promise<string> {
+    const qualified = `${quoteMySqlIdentifier(relation.schema)}.${quoteMySqlIdentifier(relation.name)}`
+    const keyword = relation.kind === 'view' ? 'view' : 'table'
+    const result = await this.query({ sql: `show create ${keyword} ${qualified}`, maxRows: 1 })
+    const ddl = result.rows[0]?.[1]
+    if (typeof ddl !== 'string') {
+      throw new DataForgeError('not_found', `Relation "${relation.schema}.${relation.name}" no longer exists.`)
+    }
+    return ddl.endsWith(';') ? ddl : `${ddl};`
+  }
+
+  async objectStats(relation: RelationInfo): Promise<ObjectStats> {
+    const stats = await this.queryValues(OBJECT_STATS_SQL, [relation.name], 1)
+    const row = stats[0]
+    const indexes = await this.queryValues(OBJECT_INDEX_SQL, [relation.name], 500)
+    const mapped = indexes.map((index) => ({
+      name: String(index[0] ?? ''),
+      bytes: null,
+      unique: Number(index[1] ?? 1) === 0,
+      definition: null,
+    }))
+    return {
+      totalBytes: toBytes(row?.[0]) === null && toBytes(row?.[1]) === null
+        ? null
+        : (toBytes(row?.[0]) ?? 0) + (toBytes(row?.[1]) ?? 0),
+      rowEstimate: toBytes(row?.[2]),
+      indexBytes: toBytes(row?.[1]),
+      indexes: mapped,
+    }
   }
 
   async listSchemas(): Promise<string[]> {

@@ -55,6 +55,20 @@ export interface DriverSession {
 }
 
 /** Drivers that can hold a single-client transaction per connection. */
+export interface ObjectIndex {
+  readonly name: string
+  readonly bytes: number | null
+  readonly unique: boolean
+  readonly definition: string | null
+}
+
+export interface ObjectStats {
+  readonly totalBytes: number | null
+  readonly rowEstimate: number | null
+  readonly indexBytes: number | null
+  readonly indexes: readonly ObjectIndex[]
+}
+
 export interface TransactionalDriver extends DatabaseDriver {
   openSession(): Promise<DriverSession>
 }
@@ -163,6 +177,17 @@ export interface DriverCapabilities {
  * valid connection target and editing support is an explicit capability
  * instead of an assumption.
  */
+/**
+ * Object-browser capability: search, DDL and size statistics. Kept as a role
+ * interface for the same reason as editing — a driver without it stays a valid
+ * connection target and the UI hides the entry points.
+ */
+export interface ObjectCatalogDriver extends DatabaseDriver {
+  searchObjects?(query: string, limit: number): Promise<RelationInfo[]>
+  objectDdl(relation: RelationInfo): Promise<string>
+  objectStats(relation: RelationInfo): Promise<ObjectStats>
+}
+
 export interface DataEditingDriver extends DatabaseDriver {
   readonly capabilities: DriverCapabilities
   selectPage(input: DriverPageInput): Promise<DriverPageResult>

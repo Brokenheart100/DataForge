@@ -10,6 +10,10 @@ import type {
   DataPageDto,
   DataPageInput,
   ExplainInput,
+  ObjectRefDto,
+  ObjectSearchDto,
+  ObjectSearchInput,
+  ObjectTargetInput,
   QueryInput,
   SessionStateDto,
   RequestOutput,
@@ -22,6 +26,7 @@ import { REQUEST_TYPES } from '@shared/protocol'
 import type { Logger } from '../application/ports'
 import type { ConnectionService } from '../application/connection-service'
 import type { ConsoleService } from '../application/console-service'
+import type { ObjectService } from '../application/object-service'
 import type { CommitResult, DataPage, DataEditorService } from '../application/data-editor-service'
 import type { ExportService } from '../application/export-service'
 import type { QueryService } from '../application/query-service'
@@ -87,6 +92,14 @@ const dataCommitSchema = z.object({
     .max(500),
 })
 
+const objectTargetSchema = z.object({
+  connectionId: z.string().min(1).max(128),
+  database: z.string().min(1).max(63).optional(),
+  schema: z.string().min(1).max(63),
+  name: z.string().min(1).max(63),
+  kind: z.enum(['table', 'view', 'materialized view', 'partitioned table', 'foreign table']),
+})
+
 /** Per-request payload schemas: every message from the webview is untrusted. */
 const payloadSchemas: Readonly<Record<RequestType, z.ZodType>> = {
   'connection.list': z.null(),
@@ -149,6 +162,15 @@ const payloadSchemas: Readonly<Record<RequestType, z.ZodType>> = {
     schema: z.string().min(1).max(63),
     relation: z.string().min(1).max(63),
   }),
+  'object.search': z.object({
+    connectionId: z.string().min(1).max(128),
+    database: z.string().min(1).max(63).optional(),
+    query: z.string().min(1).max(120),
+    limit: z.number().int().min(1).max(500).optional(),
+  }),
+  'object.ddl': objectTargetSchema,
+  'object.stats': objectTargetSchema,
+  'object.openInEditor': objectTargetSchema,
   'data.cancel': z.object({ targetRequestId: z.string().min(1).max(128) }),
   'workbench.ready': z.null(),
 }
@@ -172,6 +194,10 @@ export interface MessageRouterDeps {
   readonly sessions?: QuerySessionService
   /** Optional so router tests can run without a console registry. */
   readonly consoles?: ConsoleService
+  /** Optional so router tests can run without an object catalog. */
+  readonly objects?: ObjectService
+  /** Opens the DDL as a read-only document in the editor. */
+  readonly openObjectDdl?: (target: ObjectTargetInput) => Promise<void>
 }
 
 function formatIssues(error: z.ZodError): string {
@@ -189,6 +215,11 @@ function sessionService(deps: MessageRouterDeps): QuerySessionService {
 function consoleService(deps: MessageRouterDeps): ConsoleService {
   if (!deps.consoles) throw new DataForgeError('internal', 'Consoles are not available in this build.')
   return deps.consoles
+}
+
+function objectService(deps: MessageRouterDeps): ObjectService {
+  if (!deps.objects) throw new DataForgeError('internal', 'The object browser is not available in this build.')
+  return deps.objects
 }
 
 function okResponse<T extends RequestType>(id: string, type: T, data: RequestOutput<T>): WebviewResponse {
@@ -358,6 +389,26 @@ export class MessageRouter {
         if (!targetPath) return { saved: false } satisfies DataExportDto
         const result = await this.deps.exporter.exportTable({ ...input, targetPath, requestId })
         return { saved: true, path: result.path, rowCount: result.rowCount } satisfies DataExportDto
+      }
+      case 'object.search': {
+        const result = await objectService(this.deps).search(as<ObjectSearchInput>(payload))
+        const objects: ObjectRefDto[] = result.objects.map((object) => ({
+          schema: object.schema,
+          name: object.name,
+          kind: object.kind,
+        }))
+        return { objects, truncated: result.truncated } satisfies ObjectSearchDto
+      }
+      case 'object.ddl':
+        return objectService(this.deps).ddl(as<ObjectTargetInput>(payload))
+      case 'object.stats':
+        return objectService(this.deps).stats(as<ObjectTargetInput>(payload))
+      case 'object.openInEditor': {
+        if (!this.deps.openObjectDdl) {
+          throw new DataForgeError('internal', 'Opening the DDL is not available in this build.')
+        }
+        await this.deps.openObjectDdl(as<ObjectTargetInput>(payload))
+        return null
       }
       case 'data.cancel': {
         const { targetRequestId } = as<{ targetRequestId: string }>(payload)

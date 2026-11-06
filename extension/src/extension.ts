@@ -11,8 +11,10 @@ import type { Logger } from './application/ports'
 import { QueryService } from './application/query-service'
 import { QuerySessionService } from './application/query-session-service'
 import { ConsoleService } from './application/console-service'
+import { ObjectService } from './application/object-service'
 import { SchemaService } from './application/schema-service'
 import type { ConnectionConfig } from './domain/connection'
+import type { ObjectTargetInput } from '@shared/protocol'
 import type { DatabaseDriver } from './domain/driver'
 import { DataForgeError } from './domain/errors'
 import { MySqlDriver } from './infrastructure/mysql/mysql-driver'
@@ -66,12 +68,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     defaultMaxRows: vscode.workspace.getConfiguration('dataforge').get<number>('maxRows', 500),
   })
   const consoles = new ConsoleService({ connections, queries, sessions, logger })
+  const objects = new ObjectService({ connections, logger })
   const dataEditor = new DataEditorService({ connections, schemas, logger })
   const exporter = new ExportService({ connections, schemas, logger })
   const router = new MessageRouter({
     connections,
     queries,
     consoles,
+    objects,
+    openObjectDdl: (target) => openObjectDdl(target),
     dataEditor,
     exporter,
     pickExportPath: (suggestedName) => pickExportPath(suggestedName),
@@ -131,6 +136,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const requireConnectionId = (argument: unknown): string | undefined => connectionIdOf(argument)
 
+  const openObjectDdl = async (target: ObjectTargetInput): Promise<void> => {
+    const ddl = await objects.ddl(target)
+    const document = await vscode.workspace.openTextDocument({ content: ddl.ddl, language: 'sql' })
+    await vscode.window.showTextDocument(document, { preview: ddl.cached })
+  }
+
+  const showObject = (target: ObjectTargetInput): void => {
+    openWorkbench().showObject(target)
+  }
+
   const registrations = [
     vscode.commands.registerCommand('dataforge.newConnection', () => {
       openWorkbench()
@@ -156,6 +171,47 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           () => connections.connect(connectionId),
         )
         tree.refresh()
+      })
+    }),
+
+    vscode.commands.registerCommand('dataforge.showObjectDdl', (argument?: unknown) => {
+      const target = objectTargetOf(argument)
+      if (target) showObject(target)
+    }),
+
+    vscode.commands.registerCommand('dataforge.searchObjects', async () => {
+      const connectionId = lastConnectionId ?? connections.list().find((item) => item.state === 'connected')?.id
+      if (!connectionId) {
+        void vscode.window.showInformationMessage('DataForge: connect a database first.')
+        return
+      }
+      const query = await vscode.window.showInputBox({
+        title: 'Search database objects',
+        prompt: 'Part of a table or view name',
+        placeHolder: 'orders',
+        ignoreFocusOut: true,
+      })
+      if (!query || !query.trim()) return
+      await guard('Search objects', async () => {
+        const result = await objects.search({ connectionId, query: query.trim(), limit: 200 })
+        if (result.objects.length === 0) {
+          void vscode.window.showInformationMessage(`DataForge: no objects match "${query.trim()}".`)
+          return
+        }
+        const picked = await vscode.window.showQuickPick(
+          result.objects.map((object) => ({
+            label: `${object.schema}.${object.name}`,
+            description: object.kind,
+            target: {
+              connectionId,
+              schema: object.schema,
+              name: object.name,
+              kind: object.kind,
+            } satisfies ObjectTargetInput,
+          })),
+          { placeHolder: `${result.objects.length} object(s) — pick one to read its DDL`, matchOnDescription: true },
+        )
+        if (picked) showObject(picked.target)
       })
     }),
 
@@ -359,6 +415,23 @@ function tableTargetOf(argument: unknown): TableTarget | undefined {
   const { connectionId, database, schema, relation } = node
   if (typeof connectionId !== 'string' || typeof schema !== 'string' || typeof relation !== 'string') return undefined
   return typeof database === 'string' ? { connectionId, database, schema, relation } : { connectionId, schema, relation }
+}
+
+/** Recognises the argument a relation node passes to `dataforge.showObjectDdl`. */
+function objectTargetOf(argument: unknown): ObjectTargetInput | undefined {
+  if (typeof argument !== 'object' || argument === null) return undefined
+  const node = argument as {
+    connectionId?: unknown
+    database?: unknown
+    schema?: unknown
+    relation?: unknown
+    kind?: unknown
+  }
+  const { connectionId, database, schema, relation, kind } = node
+  if (typeof connectionId !== 'string' || typeof schema !== 'string' || typeof relation !== 'string') return undefined
+  const objectKind = typeof kind === 'string' ? kind : 'table'
+  const target = { connectionId, schema, name: relation, kind: objectKind as ObjectTargetInput['kind'] }
+  return typeof database === 'string' ? { ...target, database } : target
 }
 
 /** Quotes a PostgreSQL identifier for names that came back from the server. */

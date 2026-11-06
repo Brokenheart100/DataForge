@@ -98,6 +98,18 @@
         "command": "dataforge.clearHistory",
         "title": "Clear Query History",
         "category": "DataForge"
+      },
+      {
+        "command": "dataforge.showObjectDdl",
+        "title": "Show DDL",
+        "category": "DataForge",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "dataforge.searchObjects",
+        "title": "Search Objects",
+        "category": "DataForge",
+        "icon": "$(search)"
       }
     ],
     "menus": {
@@ -111,6 +123,11 @@
           "command": "dataforge.refreshConnections",
           "when": "view == dataforge.connections",
           "group": "navigation@2"
+        },
+        {
+          "command": "dataforge.searchObjects",
+          "when": "view == dataforge.connections",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -128,6 +145,11 @@
           "command": "dataforge.deleteConnection",
           "when": "view == dataforge.connections && viewItem =~ /^dataforge\\.connection\\./",
           "group": "inline@3"
+        },
+        {
+          "command": "dataforge.showObjectDdl",
+          "when": "view == dataforge.connections && viewItem == dataforge.relation",
+          "group": "inline@1"
         }
       ]
     },

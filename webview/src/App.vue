@@ -7,6 +7,7 @@ import type { ConnectionSummary } from '@shared/protocol'
 import type { WorkbenchConsole } from '@/stores/workbench'
 
 import ConnectionDialog from '@/components/ConnectionDialog.vue'
+import DdlPanel from '@/components/DdlPanel.vue'
 import DataGrid from '@/components/DataGrid.vue'
 import PendingBar from '@/components/PendingBar.vue'
 import ResultTable from '@/components/ResultTable.vue'
@@ -404,6 +405,7 @@ const stateChip = (connection: ConnectionSummary): string => {
     </footer>
 
     <ConnectionDialog v-model:open="dialogOpen" :connection="editing" />
+    <DdlPanel />
 
     <div class="pointer-events-none fixed bottom-3 right-3 z-50 flex w-72 flex-col gap-2">
       <div v-for="toast in store.toasts" :key="toast.id" class="df-panel pointer-events-auto px-2 py-1.5 text-[11px]"

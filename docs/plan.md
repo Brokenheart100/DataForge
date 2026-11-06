@@ -17,6 +17,7 @@
 | 编辑器能力 | 补全（复用 schema 缓存）、格式化、历史 200 条、EXPLAIN、状态栏耗时 |
 | 事务 | 显式 `BEGIN/COMMIT/ROLLBACK`，关闭面板/断开连接自动回滚 |
 | 控制台 | 每个连接多个标签页，各自保留 SQL 与结果；关闭即取消运行中的查询并回滚该控制台的事务（0.1.4） |
+| 对象 | 名称搜索、DDL 查看（可复制/在编辑器打开）、表大小/行数/索引；60 秒缓存（0.1.4） |
 | 工程 | CI（双 Node + PG/MySQL service）、Release、Marketplace `dataforge.dataforge-ide` |
 
 ## 2. 版本节奏
@@ -85,6 +86,8 @@
 
 ## 6. 阶段 C：对象浏览器
 
+状态：✅ 实现完成（协议 `object.*`，待发布 0.1.4）。
+
 目标：不再只有树；支持按名称搜索、查看 DDL、看表大小/行数/索引、跳转定义。
 
 批次：`application/object-service.ts` + 驱动端口 `objectDdl/objectStats` →
@@ -92,12 +95,12 @@ PostgreSQL 实现 → 树搜索与 DDL 面板 → 测试。
 
 ### 6.1 Todo List
 
-- [ ] `DdlDriver` 端口：`objectDdl(scope, kind, name)`、`objectStats`
-- [ ] PostgreSQL：`pg_get_*def` 读取 DDL，`pg_total_relation_size`/`reltuples`
-- [ ] MySQL：`SHOW CREATE TABLE` 与 `information_schema.tables`
-- [ ] `object.search`：前缀/模糊搜索，限 200 条，带 kind 图标
-- [ ] Webview DDL 面板：只读高亮、复制、在编辑器中打开
-- [ ] 缓存：按 scope + 对象做 TTL 缓存，失效策略可手动刷新
+- [x] `ObjectCatalogDriver` 端口：`searchObjects?`、`objectDdl(relation)`、`objectStats(relation)`
+- [x] PostgreSQL：`pg_get_viewdef`/`pg_get_indexdef` 重建 DDL，`pg_total_relation_size`/`reltuples`
+- [x] MySQL：`SHOW CREATE TABLE|VIEW` 与 `information_schema.tables`
+- [x] `object.search`：模糊搜索，限 200 条（上限 500），带 kind
+- [x] Webview DDL 面板：只读、复制、在编辑器中打开（`object.openInEditor`）
+- [x] 缓存：按 scope + 对象 60 秒 TTL，`invalidate()` 手动失效
 
 ## 7. 阶段 D：数据编辑强化
 

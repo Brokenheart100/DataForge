@@ -106,6 +106,56 @@ export interface ConsoleDto {
   title: string
 }
 
+export type ObjectKind = 'table' | 'view' | 'materialized view' | 'partitioned table' | 'foreign table'
+
+/** A relation found by the object search; `kind` drives the icon and the DDL request. */
+export interface ObjectRefDto {
+  schema: string
+  name: string
+  kind: ObjectKind
+}
+
+export interface ObjectSearchInput {
+  connectionId: string
+  database?: string
+  /** Case-insensitive fragment matched against schema and relation names. */
+  query: string
+  limit?: number
+}
+
+export interface ObjectSearchDto {
+  objects: ObjectRefDto[]
+  truncated: boolean
+}
+
+export interface ObjectTargetInput {
+  connectionId: string
+  database?: string
+  schema: string
+  name: string
+  kind: ObjectKind
+}
+
+export interface ObjectIndexDto {
+  name: string
+  bytes: number | null
+  unique: boolean
+  definition: string | null
+}
+
+export interface ObjectStatsDto {
+  totalBytes: number | null
+  rowEstimate: number | null
+  indexBytes: number | null
+  indexes: ObjectIndexDto[]
+}
+
+export interface ObjectDdlDto {
+  ddl: string
+  /** True when the answer came from the host cache instead of the server. */
+  cached: boolean
+}
+
 export interface DataSortDto {
   column: string
   direction: 'asc' | 'desc'
@@ -245,6 +295,11 @@ export interface RequestCatalogue {
   'console.open': { input: { connectionId: string; database?: string; title?: string }; output: ConsoleDto }
   'console.list': { input: { connectionId: string }; output: ConsoleDto[] }
   'console.close': { input: { consoleId: string }; output: null }
+  'object.search': { input: ObjectSearchInput; output: ObjectSearchDto }
+  'object.ddl': { input: ObjectTargetInput; output: ObjectDdlDto }
+  'object.stats': { input: ObjectTargetInput; output: ObjectStatsDto }
+  /** Opens a read-only SQL document in the editor with the object's DDL. */
+  'object.openInEditor': { input: ObjectTargetInput; output: null }
   'query.execute': { input: QueryInput; output: QueryResultDto }
   'query.cancel': { input: { targetRequestId: string }; output: null }
   'query.explain': { input: ExplainInput; output: ExplainResultDto }
@@ -276,6 +331,10 @@ export const REQUEST_TYPES = [
   'console.open',
   'console.list',
   'console.close',
+  'object.search',
+  'object.ddl',
+  'object.stats',
+  'object.openInEditor',
   'query.execute',
   'query.cancel',
   'query.explain',
@@ -338,6 +397,7 @@ export type HostEvent =
   | { type: 'connections.changed'; payload: ConnectionSummary[] }
   | { type: 'toast'; payload: { level: 'info' | 'warn' | 'error'; message: string } }
   | { type: 'editor.prefill'; payload: { sql: string; connectionId?: string; target?: RelationTarget } }
+  | { type: 'object.ddl'; payload: ObjectTargetInput }
 
 export type HostMessage =
   | { kind: 'ready'; payload: BootstrapPayload }

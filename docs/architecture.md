@@ -71,11 +71,11 @@
 | `domain/scope.ts` | 已交付 | scope 键与序列化，缓存键统一 `connectionId\u0000database` |
 | `application/connection-service.ts` | 已交付 | `requireScopedDriver` 作用域池、`listDatabases`、`switchDatabase`，断开时释放副库池 |
 | `application/console-service.ts` | 已交付 | 多控制台：`open/copy/close/list`，关闭时取消运行中查询并回滚该控制台事务 |
-| `application/object-service.ts` | 新增 | 搜索、DDL、统计；结果按 scope 缓存并有 TTL |
+| `application/object-service.ts` | 已交付 | 搜索、DDL、统计；按 scope + 对象缓存 60 秒，可手动失效 |
 | `application/ddl-planner.ts` | 新增 | 建表/改列/索引的结构化模型 → SQL，附风险标记 |
 | `application/import-service.ts` | 新增 | 流式解析 + 分批提交 + 错误行收集（最多 100 行） |
 | `application/session-monitor.ts` | 新增 | 会话列表、长事务标记、终止操作 |
-| `infrastructure/postgres/*` | 扩展 | `DdlDriver`、`SessionDriver`、`objectStats` |
+| `infrastructure/postgres/*` | 扩展 | `ObjectCatalogDriver`（搜索/DDL/统计）、`TransactionalDriver` |
 | `infrastructure/mysql/*` | 扩展 | 同上；编辑/导出/事务逐步补齐 |
 | `infrastructure/ssh/tunnel.ts` | 新增 | `ssh2` 客户端 + 本地转发 + 生命周期 |
 | `presentation/object-explorer.ts` | 重构 | 资源树升级为对象浏览器（搜索入口、按 scope 嵌套） |
@@ -92,7 +92,7 @@
 | datasource | `connection.*` | 现有 CRUD/test/connect/disconnect，增加 `tunnel.*` |
 | scope | `database.list`（已交付）、`scope.describe` | 数据库列举与作用域元信息 |
 | console | `console.open/close/list`（已交付）、`query.execute`（带 `consoleId`） | 控制台与执行 |
-| object | `object.search`、`object.ddl`、`object.stats` | 对象搜索、DDL、统计 |
+| object | `object.search`、`object.ddl`、`object.stats`、`object.openInEditor`（已交付） | 对象搜索、DDL、统计、在编辑器打开 |
 | ddl | `ddl.preview`、`ddl.apply` | 结构变更预览与执行 |
 | import | `import.preview`、`import.start`、`import.cancel` | 导入向导与后台任务 |
 | session | `session.list`、`session.terminate` | 运维视图 |
@@ -108,6 +108,12 @@
 控制台（D2 已落地）：一个连接可开多个控制台，各自持有 SQL/结果/错误与事务状态；
 会话键为 `consoleId ?? connectionId`，关闭控制台先取消其 `requestId` 再回滚其事务，
 断连时按连接回滚全部控制台，标签保留并标记“需重连”。
+
+对象浏览（D3 已落地）：`ObjectCatalogDriver` 提供搜索、DDL 与统计；表 DDL 由列定义、
+主键约束与二级索引重建，视图直接取服务器定义；统计来自 `pg_total_relation_size` 与
+`reltuples`（行估算可能为负，此时返回 `null`）。结果按 `scope + 对象` 缓存 60 秒，
+缓存键以 scope key 开头，`invalidate(connectionId)` 可按连接清理。Webview 只拿到
+DDL 文本，不能自己拼 SQL 或读目录。
 
 ## 5. 生命周期与并发
 

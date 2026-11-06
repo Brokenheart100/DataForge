@@ -19,6 +19,9 @@ import type {
   MutationBatch,
   MutationField,
   MutationResult,
+  ObjectCatalogDriver,
+  ObjectIndex,
+  ObjectStats,
   RelationInfo,
   RelationKind,
   RowMutation,
@@ -30,8 +33,30 @@ import type {
 } from '../../domain/driver'
 import { DataConflictError, DataForgeError, redactSecrets } from '../../domain/errors'
 import { toCellValue } from '../cells'
-import { buildCountQuery, buildDelete, buildInsert, buildPageQuery, buildUpdate, quoteQualified } from './sql-builder'
+import {
+  buildCountQuery,
+  buildDelete,
+  buildInsert,
+  buildPageQuery,
+  buildUpdate,
+  quoteIdentifier,
+  quoteQualified,
+} from './sql-builder'
 import type { BuiltStatement, ColumnValue } from './sql-builder'
+
+type IndexRow = {
+  readonly name: string
+  readonly definition: string
+  readonly unique_index: boolean
+  readonly primary_index: boolean
+  readonly bytes: string | null
+}
+
+function toBytes(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
 
 export interface PostgresSettings {
   readonly connectTimeoutMs: number
@@ -76,6 +101,57 @@ const RELATION_SQL = `
   join pg_catalog.pg_namespace n on n.oid = c.relnamespace
   where n.nspname = $1 and c.relkind = any ($2::char[])
   order by c.relname`
+
+const OBJECT_SEARCH_SQL = `
+  select n.nspname as schema, c.relname as name, c.relkind as kind
+  from pg_catalog.pg_class c
+  join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+  where c.relkind = any ($3::char[])
+    and (c.relname ilike $1 or n.nspname ilike $1 or (n.nspname || '.' || c.relname) ilike $1)
+  order by n.nspname, c.relname
+  limit $2`
+
+const VIEW_DEF_SQL = `
+  select pg_catalog.pg_get_viewdef(c.oid) as definition
+  from pg_catalog.pg_class c
+  join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = $1 and c.relname = $2`
+
+const PRIMARY_KEY_SQL = `
+  select con.conname as name, pg_catalog.pg_get_constraintdef(con.oid) as definition
+  from pg_catalog.pg_constraint con
+  join pg_catalog.pg_class c on c.oid = con.conrelid
+  join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = $1 and c.relname = $2 and con.contype = 'p'`
+
+const INDEX_SQL = `
+  select
+    ic.relname as name,
+    pg_catalog.pg_get_indexdef(i.indexrelid) as definition,
+    i.indisunique as unique_index,
+    i.indisprimary as primary_index,
+    pg_catalog.pg_relation_size(i.indexrelid) as bytes
+  from pg_catalog.pg_index i
+  join pg_catalog.pg_class ic on ic.oid = i.indexrelid
+  join pg_catalog.pg_class tc on tc.oid = i.indrelid
+  join pg_catalog.pg_namespace n on n.oid = tc.relnamespace
+  where n.nspname = $1 and tc.relname = $2
+  order by ic.relname`
+
+const OBJECT_STATS_SQL = `
+  select
+    pg_catalog.pg_total_relation_size(c.oid) as total_bytes,
+    pg_catalog.pg_relation_size(c.oid) as heap_bytes,
+    c.reltuples::bigint as row_estimate
+  from pg_catalog.pg_class c
+  join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = $1 and c.relname = $2`
+
+const PARTITION_KEY_SQL = `
+  select pg_catalog.pg_get_partkeydef(c.oid) as definition
+  from pg_catalog.pg_class c
+  join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = $1 and c.relname = $2`
 
 const COLUMN_SQL = `
   select
@@ -194,7 +270,9 @@ export function mapPgError(error: unknown): DataForgeError {
   return new DataForgeError(kind, `[${code}] ${parts.join('\n')}`)
 }
 
-export class PostgresDriver implements DataEditingDriver, TableExportDriver, TransactionalDriver {
+export class PostgresDriver
+  implements DataEditingDriver, TableExportDriver, TransactionalDriver, ObjectCatalogDriver
+{
   readonly kind = 'postgresql'
   readonly capabilities: DriverCapabilities = { transactions: true, returning: true, identifierQuote: '"' }
 
@@ -378,6 +456,97 @@ export class PostgresDriver implements DataEditingDriver, TableExportDriver, Tra
       isPrimaryKey: row.is_primary_key,
       ordinal: row.ordinal,
     }))
+  }
+
+  async searchObjects(query: string, limit: number): Promise<RelationInfo[]> {
+    const rows = await this.runScalarQuery<{ schema: string; name: string; kind: string }>(
+      OBJECT_SEARCH_SQL,
+      [`%${query}%`, Math.max(1, Math.trunc(limit)), RELATION_KIND_CODES],
+    )
+    return rows.map((row) => ({ schema: row.schema, name: row.name, kind: RELATION_KINDS[row.kind] ?? 'table' }))
+  }
+
+  /**
+   * PostgreSQL has no "show create" for tables, so the statement is rebuilt
+   * from the catalog the way pg_dump does. Views reuse `pg_get_viewdef`, and
+   * index definitions come verbatim from `pg_get_indexdef`.
+   */
+  async objectDdl(relation: RelationInfo): Promise<string> {
+    if (relation.kind === 'view' || relation.kind === 'materialized view') {
+      const def = await this.runScalarQuery<{ definition: string }>(VIEW_DEF_SQL, [relation.schema, relation.name])
+      const keyword = relation.kind === 'view' ? 'view' : 'materialized view'
+      const body = (def[0]?.definition ?? 'select 1').trim().replace(/;$/, '')
+      return `create ${keyword} ${quoteQualified(relation.schema, relation.name)} as
+${body};`
+    }
+    if (relation.kind === 'foreign table') {
+      throw new DataForgeError('invalid_request', 'DDL for foreign tables is not supported yet.')
+    }
+
+    const columns = await this.listColumns(relation.schema, relation.name)
+    if (columns.length === 0) {
+      throw new DataForgeError('not_found', `Relation "${relation.schema}.${relation.name}" no longer exists.`)
+    }
+    const primary = await this.runScalarQuery<{ name: string; definition: string }>(PRIMARY_KEY_SQL, [
+      relation.schema,
+      relation.name,
+    ])
+    const indexes = await this.runScalarQuery<IndexRow>(INDEX_SQL, [relation.schema, relation.name])
+    const partition =
+      relation.kind === 'partitioned table'
+        ? await this.runScalarQuery<{ definition: string }>(PARTITION_KEY_SQL, [relation.schema, relation.name])
+        : []
+
+    const lines = columns.map((column) => {
+      const parts = [quoteIdentifier(column.name), column.dataType]
+      if (!column.nullable) parts.push('not null')
+      if (column.defaultValue !== null) parts.push(`default ${column.defaultValue}`)
+      return `  ${parts.join(' ')}`
+    })
+    const key = primary[0]
+    if (key) lines.push(`  constraint ${quoteIdentifier(key.name)} ${key.definition}`)
+
+    const suffix = partition[0]?.definition ? `
+partition by ${partition[0].definition}` : ''
+    const body = lines.join(`,
+`)
+    const statements = [`create table ${quoteQualified(relation.schema, relation.name)} (
+${body}
+)${suffix};`]
+    for (const index of indexes) {
+      if (index.primary_index) continue
+      statements.push(`${index.definition.trim().replace(/;$/, '')};`)
+    }
+    if (relation.kind === 'partitioned table') {
+      statements.push('-- Partitions are not reproduced; create them with "create table … partition of".')
+    }
+    return statements.join('\n\n')
+  }
+
+  async objectStats(relation: RelationInfo): Promise<ObjectStats> {
+    const rows = await this.runScalarQuery<{
+      total_bytes: string | null
+      heap_bytes: string | null
+      row_estimate: string | null
+    }>(OBJECT_STATS_SQL, [relation.schema, relation.name])
+    const row = rows[0]
+    const indexes = await this.runScalarQuery<IndexRow>(INDEX_SQL, [relation.schema, relation.name])
+    const secondary = indexes.filter((index) => !index.primary_index)
+    const indexBytes = secondary.reduce((total, index) => total + (toBytes(index.bytes) ?? 0), 0)
+    const estimate = row?.row_estimate === null || row?.row_estimate === undefined ? null : Number(row.row_estimate)
+    return {
+      totalBytes: toBytes(row?.total_bytes),
+      rowEstimate: estimate === null || !Number.isFinite(estimate) || estimate < 0 ? null : estimate,
+      indexBytes: secondary.length === 0 ? null : indexBytes,
+      indexes: secondary.map(
+        (index): ObjectIndex => ({
+          name: index.name,
+          bytes: toBytes(index.bytes),
+          unique: index.unique_index,
+          definition: index.definition,
+        }),
+      ),
+    }
   }
 
   async selectPage(input: DriverPageInput): Promise<DriverPageResult> {

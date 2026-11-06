@@ -69,11 +69,29 @@
 验收结果：两个控制台可同时运行，关闭其一只取消它自己的请求；关闭带事务的控制台会回滚；
 未知控制台返回 `not_found`；断连后标签保留并显示“需重连”。
 
+### 1.4 已完成：对象浏览与搜索（D3，0.1.4）
+
+目标：不再只能顺着树点，按名字找对象、直接看 DDL、看表有多大。
+
+实现要点：
+
+1. 驱动端口 `ObjectCatalogDriver`（`searchObjects?` / `objectDdl` / `objectStats`），
+   PostgreSQL 用 `pg_get_viewdef`、`pg_get_indexdef`、`pg_total_relation_size`、`reltuples`；
+   MySQL 用 `SHOW CREATE TABLE|VIEW` 与 `information_schema`。
+2. `ObjectService` 负责搜索（限 200，上限 500，可截断）、DDL 与统计，
+   按 `scope + 对象` 缓存 60 秒，`invalidate()` 可在切换库/刷新时清空。
+3. 树节点右键 `Show DDL`、视图标题 `Search Objects`（宿主 QuickPick）打开同一面板；
+   Webview 面板只读展示、可复制、可 `object.openInEditor` 在编辑器打开。
+4. DDL 是重建而非原样回放：表由列 + 主键约束 + 二级索引拼出，分区表附 `partition by`
+   并注明分区未复现；视图/物化视图直接用服务器定义。
+
+验收结果：搜索能命中表与视图并标注 kind；表 DDL 含 `PRIMARY KEY` 与索引；
+统计返回总大小、行估算与二级索引；缺失对象 `not_found`；同一对象第二次读取命中缓存。
+
 ## 2. 之后的切片（按依赖排序）
 
 | 阶段 | 能力 | 关键交付 | 依赖 |
 | --- | --- | --- | --- |
-| D3 | 对象浏览与搜索 | 全库对象搜索、DDL 查看（`pg_get_*def`）、依赖/引用、表大小与行数统计 | D1.2 |
 | D4 | 数据编辑器强化 | 列级编辑、批量粘贴、条件过滤、排序持久化、行数统计、二进制/JSON 预览 | —— |
 | D5 | 导入导出 | CSV/JSON/SQL 导入（映射预览、错误行报告）、导出可选列/分隔符/编码 | D4 |
 | D6 | 结构与变更 | 新建/修改表对话框、索引/约束编辑、预览 SQL 后执行、简单 schema diff | D3 |
@@ -93,6 +111,6 @@
 ## 4. 里程碑
 
 - M6 = D1.2 完成（按库嵌套浏览）。
-- M7 = D3 + D4（对象浏览 + 编辑强化），此时对日常“看数据、改数据”已接近 DataGrip。
+- M7 = D3（已完成）+ D4（编辑强化），此时对日常“看数据、改数据”已接近 DataGrip。
 - M8 = D2 + D5 + D6（控制台、导入导出、结构变更）。
 - M9 = D7 + D8（多驱动与运维体验）。

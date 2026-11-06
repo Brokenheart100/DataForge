@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 
 import * as vscode from 'vscode'
 
-import type { BootstrapPayload, HostEvent, HostMessage, RelationTarget } from '@shared/protocol'
+import type { BootstrapPayload, HostEvent, HostMessage, ObjectTargetInput, RelationTarget } from '@shared/protocol'
 import { PROTOCOL_VERSION } from '@shared/protocol'
 
 import type { ConnectionService } from '../application/connection-service'
@@ -39,6 +39,7 @@ export class WorkbenchPanel implements vscode.Disposable {
   private disposed = false
   private ready = false
   private pendingPrefill: PrefillRequest | undefined
+  private pendingObject: ObjectTargetInput | undefined
 
   static open(context: vscode.ExtensionContext, deps: WorkbenchDeps): WorkbenchPanel {
     const existing = WorkbenchPanel.current
@@ -83,6 +84,9 @@ export class WorkbenchPanel implements vscode.Disposable {
       const pending = this.pendingPrefill
       this.pendingPrefill = undefined
       if (pending) await this.postEvent({ type: 'editor.prefill', payload: pending })
+      const object = this.pendingObject
+      this.pendingObject = undefined
+      if (object) await this.postEvent({ type: 'object.ddl', payload: object })
       return
     }
 
@@ -98,6 +102,12 @@ export class WorkbenchPanel implements vscode.Disposable {
     const payload: PrefillRequest = { sql, ...request }
     if (this.ready) void this.postEvent({ type: 'editor.prefill', payload })
     else this.pendingPrefill = payload
+  }
+
+  /** Shows the object's DDL in the webview; queued until the handshake. */
+  showObject(target: ObjectTargetInput): void {
+    if (this.ready) void this.postEvent({ type: 'object.ddl', payload: target })
+    else this.pendingObject = target
   }
 
   private bootstrap(): BootstrapPayload {

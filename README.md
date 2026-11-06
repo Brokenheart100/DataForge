@@ -144,7 +144,7 @@ GitHub release and skips the Marketplace step.
 - **Commits and exports are cancellable.** `data.cancel` aborts the request by
   id: the driver checks between statements and always rolls back, and a
   cancelled export removes the half-written CSV.
-- **Consoles are tabs, not windows.** Each connection keeps several consoles with
+- **Objects are read, never rewritten in the webview. Consoles are tabs, not windows.** Each connection keeps several consoles with
   their own SQL, result, error and transaction; the session key is
   `consoleId ?? connectionId`, so closing a console cancels only its own
   statement and rolls back only its own transaction.

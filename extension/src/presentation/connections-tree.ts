@@ -142,6 +142,7 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<TreeNode
               database: node.database,
               schema: node.schema,
               relation: node.relation.name,
+              kind: node.relation.kind,
             },
           ],
         }
