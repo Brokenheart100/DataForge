@@ -43,6 +43,7 @@ browser. `npm run package` builds `dataforge.vsix`.
 | `npm run build`     | Build both workspaces into `extension/dist`.          |
 | `npm run type-check`| `tsc --noEmit` (host) + `vue-tsc` (webview).          |
 | `npm run test:unit` | Vitest: host services, protocol, router, webview host.|
+| `npm run test:e2e`  | Playwright smoke tests against the demo workbench.     |
 | `npm run lint`      | oxlint + ESLint with autofix.                         |
 | `npm run package`   | Build and produce `dataforge.vsix` via vsce.          |
 
@@ -79,7 +80,7 @@ Two GitHub Actions workflows live in `.github/workflows`:
 
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
-| [ci.yml](.github/workflows/ci.yml) | push to `main`, pull requests, manual | `verify` type-checks and builds on Node 22.x and 24.x, `lint` runs oxlint + ESLint without autofix, `test` runs Vitest against PostgreSQL 17 and MySQL 8.4 service containers, and `package` uploads `dataforge.vsix` as an artifact. |
+| [ci.yml](.github/workflows/ci.yml) | push to `main`, pull requests, manual | `verify` type-checks and builds on Node 22.x and 24.x, `lint` runs oxlint + ESLint without autofix, `test` runs Vitest against PostgreSQL 17 and MySQL 8.4 service containers, `e2e` drives the built workbench in headless Chromium with Playwright, and `package` uploads `dataforge.vsix` as an artifact. |
 | [release.yml](.github/workflows/release.yml) | `v*` tags, manual | Repeats the checks, verifies the tag matches `extension/package.json`'s version, packages the VSIX, creates or updates the GitHub release, and publishes to the Marketplace when the `VSCE_PAT` secret exists. |
 
 The integration suites run automatically: the test job exports
