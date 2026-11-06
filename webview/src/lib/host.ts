@@ -194,6 +194,47 @@ class DemoTransport implements Transport {
         succeed([...this.consoles.values()].filter((item) => item.connectionId === payload.connectionId))
         return
       }
+      case 'import.preview': {
+        succeed({
+          token: 'demo-import',
+          fileName: 'orders.csv',
+          format: 'csv',
+          delimiter: ',',
+          hasHeader: true,
+          totalBytes: 2048,
+          headers: ['id', 'customer', 'total'],
+          sample: [
+            ['1', 'Customer 1', '12.5'],
+            ['2', 'Customer 2', '99'],
+          ],
+          mapping: [
+            { source: 'id', target: 'id' },
+            { source: 'customer', target: 'customer' },
+            { source: 'total', target: 'total' },
+          ],
+          columns: [
+            { name: 'id', dataType: 'int4', nullable: false, defaultValue: null },
+            { name: 'customer', dataType: 'text', nullable: false, defaultValue: null },
+            { name: 'total', dataType: 'numeric', nullable: true, defaultValue: null },
+            { name: 'created_at', dataType: 'timestamptz', nullable: true, defaultValue: 'now()' },
+          ],
+          issues: [],
+        })
+        return
+      }
+      case 'import.start':
+        this.emit({
+          kind: 'event',
+          payload: {
+            type: 'import.progress',
+            payload: { requestId: request.id, fileName: 'orders.csv', processed: 3, inserted: 3, failed: 0, done: false },
+          },
+        })
+        succeed({ imported: 3, failed: 0, cancelled: false, errors: [], durationMs: 12 })
+        return
+      case 'import.cancel':
+        succeed(null)
+        return
       case 'console.close': {
         const payload = request.payload as { consoleId: string }
         this.consoles.delete(payload.consoleId)

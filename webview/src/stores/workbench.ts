@@ -249,7 +249,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         }
       } else if (event.type === 'object.ddl') {
         void showDdl(event.payload)
-      } else {
+      } else if (event.type === 'toast') {
         pushToast(event.payload.level, event.payload.message)
       }
     })

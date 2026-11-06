@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { Download, Plus, RotateCcw, Trash2, Upload } from 'lucide-vue-next'
 
+import ImportDialog from './ImportDialog.vue'
 import { useDataEditorStore } from '../stores/data-editor'
 import { useWorkbenchStore } from '../stores/workbench'
 
@@ -117,6 +118,14 @@ async function cancelCommit(): Promise<void> {
       Cancel export
     </button>
     <button
+      class="df-btn df-btn-ghost"
+      :disabled="!editor.editable || editor.importing"
+      title="Import CSV or JSON rows into this relation"
+      @click="editor.openImport()"
+    >
+      <Upload :size="13" /> Import
+    </button>
+    <button
       class="df-btn df-btn-primary"
       :disabled="!editor.editable || !editor.hasPending || editor.saving"
       @click="confirmingCommit = true"
@@ -145,4 +154,6 @@ async function cancelCommit(): Promise<void> {
       </div>
     </div>
   </section>
+
+  <ImportDialog v-if="editor.importOpen" />
 </template>

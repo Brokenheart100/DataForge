@@ -274,6 +274,72 @@ export interface DataExportDto {
   rowCount?: number
 }
 
+export type ImportFormat = 'csv' | 'json'
+
+export interface ImportPreviewInput {
+  connectionId: string
+  database?: string
+  schema: string
+  relation: string
+  format: ImportFormat
+  delimiter?: string
+  hasHeader?: boolean
+}
+
+/** One source column and where it lands; `target: null` means "ignore this column". */
+export interface ImportMappingDto {
+  source: string
+  target: string | null
+}
+
+export interface ImportColumnDto {
+  name: string
+  dataType: string
+  nullable: boolean
+  defaultValue: string | null
+}
+
+/**
+ * Preview of the file the host picked. `token` is opaque to the webview and
+ * identifies the host-side file for the subsequent `import.start` request.
+ */
+export interface ImportPreviewDto {
+  token: string
+  fileName: string
+  format: ImportFormat
+  delimiter: string
+  hasHeader: boolean
+  totalBytes: number
+  headers: string[]
+  sample: string[][]
+  mapping: ImportMappingDto[]
+  columns: ImportColumnDto[]
+  issues: string[]
+}
+
+export interface ImportStartInput {
+  connectionId: string
+  database?: string
+  schema: string
+  relation: string
+  token: string
+  mapping: ImportMappingDto[]
+  batchSize?: number
+}
+
+export interface ImportErrorDto {
+  row: number
+  message: string
+}
+
+export interface ImportResultDto {
+  imported: number
+  failed: number
+  cancelled: boolean
+  errors: ImportErrorDto[]
+  durationMs: number
+}
+
 export interface ErrorDto {
   code: ErrorCode
   message: string
@@ -322,6 +388,11 @@ export interface RequestCatalogue {
   'data.page': { input: DataPageInput; output: DataPageDto }
   'data.commit': { input: DataCommitInput; output: DataCommitResult }
   'data.export': { input: DataExportInput; output: DataExportDto }
+  /** Opens a picker in the host, then returns the first rows and a file token. */
+  'import.preview': { input: ImportPreviewInput; output: ImportPreviewDto }
+  /** Streams a previously previewed file into the relation in batches. */
+  'import.start': { input: ImportStartInput; output: ImportResultDto }
+  'import.cancel': { input: { targetRequestId: string }; output: null }
   /** Aborts a running `data.commit` or `data.export` by its request id. */
   'data.cancel': { input: { targetRequestId: string }; output: null }
   'workbench.ready': { input: null; output: null }
@@ -357,6 +428,9 @@ export const REQUEST_TYPES = [
   'data.page',
   'data.commit',
   'data.export',
+  'import.preview',
+  'import.start',
+  'import.cancel',
   'data.cancel',
   'workbench.ready',
 ] as const satisfies readonly RequestType[]
@@ -405,11 +479,21 @@ export interface RelationTarget {
   relation: string
 }
 
+export interface ImportProgressEvent {
+  requestId: string
+  fileName: string
+  processed: number
+  inserted: number
+  failed: number
+  done: boolean
+}
+
 export type HostEvent =
   | { type: 'connections.changed'; payload: ConnectionSummary[] }
   | { type: 'toast'; payload: { level: 'info' | 'warn' | 'error'; message: string } }
   | { type: 'editor.prefill'; payload: { sql: string; connectionId?: string; target?: RelationTarget } }
   | { type: 'object.ddl'; payload: ObjectTargetInput }
+  | { type: 'import.progress'; payload: ImportProgressEvent }
 
 export type HostMessage =
   | { kind: 'ready'; payload: BootstrapPayload }

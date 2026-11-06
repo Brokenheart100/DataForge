@@ -30,6 +30,10 @@ adds a MySQL adapter behind the same driver ports:
   nothing.
 - **CSV export** — stream a whole relation to a file you pick; the webview never
   touches the filesystem.
+- **CSV/JSON import** — pick a file in the host, map its columns onto the table,
+  and stream it in batches of 1000 rows. A failing batch rolls back and the
+  first 100 problem rows are reported with line numbers; the run can be
+  cancelled from the same dialog.
 - **Safety** — passwords never leave the extension host: they live in
   `SecretStorage`, never in settings, logs or webview messages. Mark a profile
   **read-only** and only `select`/`with`/`show`/`explain` statements are sent,

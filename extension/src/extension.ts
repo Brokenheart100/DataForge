@@ -7,6 +7,7 @@ import { DataEditorService } from './application/data-editor-service'
 import { ExportService } from './application/export-service'
 import { FormatService } from './application/format-service'
 import { HistoryService } from './application/history-service'
+import { ImportService } from './application/import-service'
 import type { Logger } from './application/ports'
 import { QueryService } from './application/query-service'
 import { QuerySessionService } from './application/query-session-service'
@@ -71,6 +72,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const objects = new ObjectService({ connections, logger })
   const dataEditor = new DataEditorService({ connections, schemas, logger })
   const exporter = new ExportService({ connections, schemas, logger })
+  let panel: WorkbenchPanel | undefined
+  const importer = new ImportService({
+    schemas,
+    dataEditor,
+    logger,
+    pickFile: (format) => pickImportFile(format),
+    onProgress: (event) => panel?.notify({ type: 'import.progress', payload: event }),
+  })
   const router = new MessageRouter({
     connections,
     queries,
@@ -79,6 +88,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     openObjectDdl: (target) => openObjectDdl(target),
     dataEditor,
     exporter,
+    importer,
     pickExportPath: (suggestedName) => pickExportPath(suggestedName),
     logger,
     sessions,
@@ -95,7 +105,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     showCollapseAll: true,
   })
 
-  let panel: WorkbenchPanel | undefined
   const openWorkbench = (argument?: unknown): WorkbenchPanel => {
     panel = WorkbenchPanel.open(context, {
       connections,
@@ -354,6 +363,18 @@ function createDriver(config: ConnectionConfig, logger: Logger): DatabaseDriver 
     statementTimeoutMs,
     onBackgroundError: (message) => logger.warn(message),
   })
+}
+
+async function pickImportFile(format: 'csv' | 'json'): Promise<string | undefined> {
+  const filters: Record<string, string[]> =
+    format === 'json' ? { 'JSON file': ['json'] } : { 'CSV file': ['csv', 'txt'] }
+  const [target] = (await vscode.window.showOpenDialog({
+    title: 'Import data from a file',
+    openLabel: 'Import',
+    canSelectMany: false,
+    filters,
+  })) ?? []
+  return target?.fsPath
 }
 
 async function pickExportPath(suggestedName: string): Promise<string | undefined> {

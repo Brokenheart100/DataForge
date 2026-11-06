@@ -73,7 +73,7 @@
 | `application/console-service.ts` | 已交付 | 多控制台：`open/copy/close/list`，关闭时取消运行中查询并回滚该控制台事务 |
 | `application/object-service.ts` | 已交付 | 搜索、DDL、统计；按 scope + 对象缓存 60 秒，可手动失效 |
 | `application/ddl-planner.ts` | 新增 | 建表/改列/索引的结构化模型 → SQL，附风险标记 |
-| `application/import-service.ts` | 新增 | 流式解析 + 分批提交 + 错误行收集（最多 100 行） |
+| `application/import-service.ts` | 已交付 | CSV/JSON 流式解析、列映射预览、分批提交（默认 1000 行）、错误行收集（最多 100 行）、可取消 |
 | `application/session-monitor.ts` | 新增 | 会话列表、长事务标记、终止操作 |
 | `infrastructure/postgres/*` | 扩展 | `ObjectCatalogDriver`（搜索/DDL/统计）、`TransactionalDriver` |
 | `infrastructure/mysql/*` | 扩展 | 同上；编辑/导出/事务逐步补齐 |
@@ -94,7 +94,7 @@
 | console | `console.open/close/list`（已交付）、`query.execute`（带 `consoleId`） | 控制台与执行 |
 | object | `object.search`、`object.ddl`、`object.stats`、`object.openInEditor`（已交付） | 对象搜索、DDL、统计、在编辑器打开 |
 | ddl | `ddl.preview`、`ddl.apply` | 结构变更预览与执行 |
-| import | `import.preview`、`import.start`、`import.cancel` | 导入向导与后台任务 |
+| import | `import.preview`、`import.start`、`import.cancel`（已交付） | 导入向导与后台任务；进度经 `import.progress` 事件推送 |
 | session | `session.list`、`session.terminate` | 运维视图 |
 | data | `data.*`、`transaction.*`、`query.explain` | 现有能力，输入统一增加可选 `database`（已交付）；`data.page` 支持 `filters` 与多列 `orderBy` |
 

@@ -110,6 +110,11 @@ export class WorkbenchPanel implements vscode.Disposable {
     else this.pendingObject = target
   }
 
+  /** Sends a host event to the webview; ignored until the handshake. */
+  notify(event: HostEvent): void {
+    if (this.ready) void this.postEvent(event)
+  }
+
   private bootstrap(): BootstrapPayload {
     const config = vscode.workspace.getConfiguration('dataforge')
     return {

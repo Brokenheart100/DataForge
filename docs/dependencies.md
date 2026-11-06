@@ -25,6 +25,7 @@
 | `mysql2` | ^3.24.6 | MySQL 驱动（纯 JS，promise API） |
 | `zod` | ^4.6.7 | 协议与持久化校验 |
 | `sql-formatter` | ^15.9.0 | SQL 格式化（宿主执行，避免 Webview 引入解析器） |
+| `csv-parse` | ^6.2.1 | CSV 导入流式解析（`csv-parse/sync` 用于 256 KB 预览样本） |
 
 ### extension（开发）
 

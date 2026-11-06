@@ -10,6 +10,8 @@ import type {
   DataPageDto,
   DataPageInput,
   ExplainInput,
+  ImportPreviewInput,
+  ImportStartInput,
   ObjectRefDto,
   ObjectSearchDto,
   ObjectSearchInput,
@@ -26,6 +28,7 @@ import { REQUEST_TYPES } from '@shared/protocol'
 import type { Logger } from '../application/ports'
 import type { ConnectionService } from '../application/connection-service'
 import type { ConsoleService } from '../application/console-service'
+import type { ImportService } from '../application/import-service'
 import type { ObjectService } from '../application/object-service'
 import type { CommitResult, DataPage, DataEditorService } from '../application/data-editor-service'
 import type { ExportService } from '../application/export-service'
@@ -178,6 +181,32 @@ const payloadSchemas: Readonly<Record<RequestType, z.ZodType>> = {
   'object.ddl': objectTargetSchema,
   'object.stats': objectTargetSchema,
   'object.openInEditor': objectTargetSchema,
+  'import.preview': z.object({
+    connectionId: z.string().min(1).max(128),
+    database: z.string().min(1).max(63).optional(),
+    schema: z.string().min(1).max(63),
+    relation: z.string().min(1).max(63),
+    format: z.enum(['csv', 'json']),
+    delimiter: z.string().min(1).max(2).optional(),
+    hasHeader: z.boolean().optional(),
+  }),
+  'import.start': z.object({
+    connectionId: z.string().min(1).max(128),
+    database: z.string().min(1).max(63).optional(),
+    schema: z.string().min(1).max(63),
+    relation: z.string().min(1).max(63),
+    token: z.string().min(1).max(64),
+    mapping: z
+      .array(
+        z.object({
+          source: z.string().min(1).max(200),
+          target: z.string().min(1).max(63).nullable(),
+        }),
+      )
+      .max(500),
+    batchSize: z.number().int().min(1).max(5000).optional(),
+  }),
+  'import.cancel': z.object({ targetRequestId: z.string().min(1).max(128) }),
   'data.cancel': z.object({ targetRequestId: z.string().min(1).max(128) }),
   'workbench.ready': z.null(),
 }
@@ -203,6 +232,8 @@ export interface MessageRouterDeps {
   readonly consoles?: ConsoleService
   /** Optional so router tests can run without an object catalog. */
   readonly objects?: ObjectService
+  /** Optional so router tests can run without the import wizard. */
+  readonly importer?: ImportService
   /** Opens the DDL as a read-only document in the editor. */
   readonly openObjectDdl?: (target: ObjectTargetInput) => Promise<void>
 }
@@ -227,6 +258,11 @@ function consoleService(deps: MessageRouterDeps): ConsoleService {
 function objectService(deps: MessageRouterDeps): ObjectService {
   if (!deps.objects) throw new DataForgeError('internal', 'The object browser is not available in this build.')
   return deps.objects
+}
+
+function importService(deps: MessageRouterDeps): ImportService {
+  if (!deps.importer) throw new DataForgeError('internal', 'Importing files is not available in this build.')
+  return deps.importer
 }
 
 function okResponse<T extends RequestType>(id: string, type: T, data: RequestOutput<T>): WebviewResponse {
@@ -416,6 +452,17 @@ export class MessageRouter {
           throw new DataForgeError('internal', 'Opening the DDL is not available in this build.')
         }
         await this.deps.openObjectDdl(as<ObjectTargetInput>(payload))
+        return null
+      }
+      case 'import.preview':
+        return importService(this.deps).preview(as<ImportPreviewInput>(payload))
+      case 'import.start':
+        return importService(this.deps).start(requestId, as<ImportStartInput>(payload))
+      case 'import.cancel': {
+        const { targetRequestId } = as<{ targetRequestId: string }>(payload)
+        if (!importService(this.deps).cancel(targetRequestId)) {
+          throw new DataForgeError('not_found', 'That import is not running any more.')
+        }
         return null
       }
       case 'data.cancel': {

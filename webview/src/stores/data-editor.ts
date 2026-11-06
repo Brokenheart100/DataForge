@@ -1,7 +1,21 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
-import type { CellValue, DataChangeDto, DataColumnDto, DataFilterDto, DataPageDto, DataRowDto, DataSortDto } from '@shared/protocol'
+import type {
+  CellValue,
+  DataChangeDto,
+  DataColumnDto,
+  DataFilterDto,
+  DataPageDto,
+  DataRowDto,
+  DataSortDto,
+  ImportErrorDto,
+  ImportFormat,
+  ImportMappingDto,
+  ImportPreviewDto,
+  ImportProgressEvent,
+  ImportResultDto,
+} from '@shared/protocol'
 
 import { HostRequestError, host } from '../lib/host'
 
@@ -78,6 +92,14 @@ export const useDataEditorStore = defineStore('data-editor', () => {
   const loading = ref(false)
   const saving = ref(false)
   const exporting = ref(false)
+  const importOpen = ref(false)
+  const importPreview = ref<ImportPreviewDto | null>(null)
+  const importLoading = ref(false)
+  const importing = ref(false)
+  const importProgress = ref<ImportProgressEvent | null>(null)
+  const importErrors = ref<ImportErrorDto[]>([])
+  const importResult = ref<ImportResultDto | null>(null)
+  const importRequestId = ref<string | null>(null)
   const commitRequestId = ref<string | null>(null)
   const exportRequestId = ref<string | null>(null)
   const error = ref<string | null>(null)
@@ -383,6 +405,101 @@ export const useDataEditorStore = defineStore('data-editor', () => {
     }
   }
 
+  function openImport(): void {
+    importOpen.value = true
+    importPreview.value = null
+    importProgress.value = null
+    importErrors.value = []
+    importResult.value = null
+  }
+
+  function closeImport(): void {
+    if (importing.value) return
+    importOpen.value = false
+    importPreview.value = null
+  }
+
+  /** Picks a file in the host and loads its header row plus a default mapping. */
+  async function previewImport(
+    format: ImportFormat,
+    options: { delimiter?: string; hasHeader?: boolean } = {},
+  ): Promise<void> {
+    if (!connectionId.value || !schema.value || !relation.value) throw new Error('No relation is open.')
+    importLoading.value = true
+    try {
+      importPreview.value = await host.request('import.preview', {
+        connectionId: connectionId.value,
+        database: database.value ?? undefined,
+        schema: schema.value,
+        relation: relation.value,
+        format,
+        delimiter: options.delimiter,
+        hasHeader: options.hasHeader,
+      })
+    } catch (cause) {
+      if (!(cause instanceof HostRequestError && cause.code === 'cancelled')) {
+        error.value = cause instanceof Error ? cause.message : String(cause)
+      }
+    } finally {
+      importLoading.value = false
+    }
+  }
+
+  /** Streams the picked file into the relation, reporting progress as it goes. */
+  async function runImport(mapping: ImportMappingDto[], batchSize = 1_000): Promise<void> {
+    const preview = importPreview.value
+    if (!preview || !connectionId.value || !schema.value || !relation.value) return
+
+    const requestId = crypto.randomUUID()
+    importRequestId.value = requestId
+    importing.value = true
+    importErrors.value = []
+    importResult.value = null
+    try {
+      const result = await host.request(
+        'import.start',
+        {
+          connectionId: connectionId.value,
+          database: database.value ?? undefined,
+          schema: schema.value,
+          relation: relation.value,
+          token: preview.token,
+          mapping,
+          batchSize,
+        },
+        requestId,
+      )
+      importResult.value = result
+      importErrors.value = result.errors
+      if (result.cancelled) {
+        importErrors.value = [{ row: 0, message: 'The import was cancelled.' }, ...result.errors]
+      } else {
+        importOpen.value = false
+        importPreview.value = null
+        await load()
+      }
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : String(cause)
+    } finally {
+      importing.value = false
+      importRequestId.value = null
+    }
+  }
+
+  function applyImportProgress(event: ImportProgressEvent): void {
+    if (event.requestId === importRequestId.value) importProgress.value = event
+  }
+
+  async function cancelImport(): Promise<void> {
+    const target = importRequestId.value
+    if (!target) return
+    try {
+      await host.request('import.cancel', { targetRequestId: target })
+    } catch {
+      // The import already finished; cancelling it is a no-op.
+    }
+  }
+
   return {
     connectionId,
     database,
@@ -431,5 +548,18 @@ export const useDataEditorStore = defineStore('data-editor', () => {
     cancelCommit,
     exportCsv,
     cancelExport,
+    importOpen,
+    importPreview,
+    importLoading,
+    importing,
+    importProgress,
+    importErrors,
+    importResult,
+    openImport,
+    closeImport,
+    previewImport,
+    runImport,
+    applyImportProgress,
+    cancelImport,
   }
 })
