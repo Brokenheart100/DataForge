@@ -54,14 +54,14 @@
 | `ScopePools` | `application/connection-service.ts` | 每作用域一个 pool，主库池用于控制台/事务，副库池只读浏览，统一释放（已交付） |
 | `ConsoleService` | `application/console-service.ts` | 控制台生命周期：新建/复制/关闭、绑定作用域、执行与取消、结果保留 |
 | `ObjectService` | `application/object-service.ts` | 对象搜索、DDL 读取、依赖与统计（大小/行数/索引） |
-| `DdlPlanner` | `application/ddl-planner.ts` | 由结构化变更生成 SQL 预览，执行前必须确认 |
+| `DdlService` | `application/ddl-service.ts` | 结构变更：计划校验、风险分级、确认、只读/事务保护、schema diff（已交付） |
 | `ImportService` | `application/import-service.ts` | CSV/JSON/SQL 流式导入：列映射、类型转换、错误行报告、批提交 |
 | `SessionMonitor` | `application/session-monitor.ts` | 会话/锁面板，终止后端（PG `pg_terminate_backend`，MySQL `KILL`） |
 | `Tunnel` | `infrastructure/ssh/tunnel.ts` | SSH 本地端口转发，供驱动连 `127.0.0.1:<port>` |
 
 驱动端口保持小而稳：`DatabaseDriver`（查询/元数据）＋ 可选能力
 `DataEditingDriver`、`TableExportDriver`、`TransactionalDriver`、`DdlDriver`（新增，
-提供 `objectDdl` 与 `applyDdl`）。能力缺失时服务层抛可读错误，UI 隐藏入口。
+提供 `applyDdl`）。能力缺失时服务层抛可读错误，UI 隐藏入口。
 
 ### 3.2 模块清单（新增与改动）
 
@@ -72,7 +72,8 @@
 | `application/connection-service.ts` | 已交付 | `requireScopedDriver` 作用域池、`listDatabases`、`switchDatabase`，断开时释放副库池 |
 | `application/console-service.ts` | 已交付 | 多控制台：`open/copy/close/list`，关闭时取消运行中查询并回滚该控制台事务 |
 | `application/object-service.ts` | 已交付 | 搜索、DDL、统计；按 scope + 对象缓存 60 秒，可手动失效 |
-| `application/ddl-planner.ts` | 新增 | 建表/改列/索引的结构化模型 → SQL，附风险标记 |
+| `application/ddl-service.ts` | 已交付 | 计划校验、风险分级/确认、只读与事务保护、`schema.diff`；SQL 由方言模块生成 |
+| `infrastructure/postgres/ddl-sql.ts` | 已交付 | 建表/加列/改列/建索引/删表的带引用 SQL 与风险说明 |
 | `application/import-service.ts` | 已交付 | CSV/JSON 流式解析、列映射预览、分批提交（默认 1000 行）、错误行收集（最多 100 行）、可取消 |
 | `application/session-monitor.ts` | 新增 | 会话列表、长事务标记、终止操作 |
 | `infrastructure/postgres/*` | 扩展 | `ObjectCatalogDriver`（搜索/DDL/统计）、`TransactionalDriver` |
@@ -82,7 +83,7 @@
 | `presentation/console-panel.ts` | 新增 | 控制台标签与结果渲染的宿主侧协调 |
 | `webview/src/views/*` | 新增 | Console、Objects、Import、Sessions 等视图 |
 
-## 4. 协议 v5
+## 4. 协议 v6
 
 信封不变：`{kind:'request', id, type, payload}`，响应 `ok/data` 或 `error{code,message}`
 （错误可带 `conflictingKeys`）。新增请求分组：
@@ -93,13 +94,13 @@
 | scope | `database.list`（已交付）、`scope.describe` | 数据库列举与作用域元信息 |
 | console | `console.open/close/list`（已交付）、`query.execute`（带 `consoleId`） | 控制台与执行 |
 | object | `object.search`、`object.ddl`、`object.stats`、`object.openInEditor`（已交付） | 对象搜索、DDL、统计、在编辑器打开 |
-| ddl | `ddl.preview`、`ddl.apply` | 结构变更预览与执行 |
+| ddl | `ddl.preview`、`ddl.apply`、`ddl.openInEditor`、`schema.diff`（已交付） | 结构变更预览/执行、在编辑器打开、schema 差异 |
 | import | `import.preview`、`import.start`、`import.cancel`（已交付） | 导入向导与后台任务；进度经 `import.progress` 事件推送 |
 | session | `session.list`、`session.terminate` | 运维视图 |
 | data | `data.*`、`transaction.*`、`query.explain` | 现有能力，输入统一增加可选 `database`（已交付）；`data.page` 支持 `filters` 与多列 `orderBy` |
 
 所有输入中的 `database` 可选（缺省=连接主库），保证 0.1.x 客户端仍可工作；
-`PROTOCOL_VERSION` 已升到 5。
+`PROTOCOL_VERSION` 已升到 6。
 
 作用域规则（D1.2 已落地）：资源树可按库嵌套展开，副库使用独立 pool 且**只读**；
 写请求（`query.execute` 中的 DML、`data.commit`）在副库上被服务层拒绝，并提示

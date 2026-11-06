@@ -2,6 +2,7 @@ import type {
   BootstrapPayload,
   CellValue,
   ConnectionDraft,
+  DdlPreviewDto,
   ErrorCode,
   ErrorDto,
   HostEvent,
@@ -231,6 +232,33 @@ class DemoTransport implements Transport {
           },
         })
         succeed({ imported: 3, failed: 0, cancelled: false, errors: [], durationMs: 12 })
+        return
+      case 'ddl.preview': {
+        const payload = request.payload as { kind: string; schema: string; table: string }
+        succeed({
+          statements: [
+            {
+              sql:
+                payload.kind === 'drop table'
+                  ? `drop table "${payload.schema}"."${payload.table}";`
+                  : `create table "${payload.schema}"."${payload.table}" (\n  "id" integer not null primary key\n);`,
+              risk: payload.kind === 'drop table' ? 'dangerous' : 'safe',
+            },
+          ],
+          requiresConfirmation: payload.kind === 'drop table',
+          expectedConfirmation: payload.kind === 'drop table' ? payload.table : null,
+          warnings: [],
+        } satisfies DdlPreviewDto)
+        return
+      }
+      case 'ddl.apply':
+        succeed({ statements: 1, durationMs: 4 })
+        return
+      case 'ddl.openInEditor':
+        succeed(null)
+        return
+      case 'schema.diff':
+        succeed({ added: [], removed: [], changed: [] })
         return
       case 'import.cancel':
         succeed(null)

@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ClipboardPaste, Filter, Plus, X } from 'lucide-vue-next'
+import { ClipboardPaste, Filter, Plus, Wrench, X } from 'lucide-vue-next'
 
 import type { CellValue, DataFilterDto, DataFilterOperator } from '@shared/protocol'
 
 import { useDataEditorStore } from '@/stores/data-editor'
+import { useDdlStore } from '@/stores/ddl'
 import { useWorkbenchStore } from '@/stores/workbench'
+import DdlDialog from '@/components/DdlDialog.vue'
 import PasteDialog from '@/components/PasteDialog.vue'
 
 const store = useDataEditorStore()
 const workbench = useWorkbenchStore()
+const ddl = useDdlStore()
 const pasteOpen = ref(false)
 
 const OPERATORS: { value: DataFilterOperator; label: string }[] = [
@@ -61,6 +64,16 @@ function labelFor(filter: DataFilterDto): string {
 function isNullable(filter: DataFilterDto): boolean {
   return filter.operator === 'is null' || filter.operator === 'is not null'
 }
+
+function openSchema(): void {
+  if (!store.connectionId || !store.schema) return
+  ddl.openFor({
+    connectionId: store.connectionId,
+    database: store.database,
+    schema: store.schema,
+    table: store.relation,
+  })
+}
 </script>
 
 <template>
@@ -107,6 +120,16 @@ function isNullable(filter: DataFilterDto): boolean {
         <ClipboardPaste class="h-3 w-3" aria-hidden="true" />
         Paste rows
       </button>
+      <button
+        class="df-btn df-btn-ghost h-7 px-2 text-[11px]"
+        type="button"
+        title="Create or change the table structure"
+        :disabled="!store.connectionId || !store.schema"
+        @click="openSchema"
+      >
+        <Wrench class="h-3 w-3" aria-hidden="true" />
+        Schema
+      </button>
     </div>
 
     <div v-if="store.filters.length > 0" class="flex flex-wrap gap-1.5">
@@ -123,6 +146,7 @@ function isNullable(filter: DataFilterDto): boolean {
       </span>
     </div>
 
+    <DdlDialog v-if="ddl.open" />
     <PasteDialog
       v-model:open="pasteOpen"
       @pasted="(count) => workbench.pushToast('info', `Added ${count} pasted row(s).`)"

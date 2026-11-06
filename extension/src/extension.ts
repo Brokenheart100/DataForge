@@ -13,6 +13,8 @@ import { QueryService } from './application/query-service'
 import { QuerySessionService } from './application/query-session-service'
 import { ConsoleService } from './application/console-service'
 import { ObjectService } from './application/object-service'
+import { DdlService } from './application/ddl-service'
+import { buildDdlStatements } from './infrastructure/postgres/ddl-sql'
 import { SchemaService } from './application/schema-service'
 import type { ConnectionConfig } from './domain/connection'
 import type { ObjectTargetInput } from '@shared/protocol'
@@ -70,6 +72,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   })
   const consoles = new ConsoleService({ connections, queries, sessions, logger })
   const objects = new ObjectService({ connections, logger })
+  const ddl = new DdlService({
+    connections,
+    sessions,
+    schemas,
+    planner: buildDdlStatements,
+    logger,
+  })
   const dataEditor = new DataEditorService({ connections, schemas, logger })
   const exporter = new ExportService({ connections, schemas, logger })
   let panel: WorkbenchPanel | undefined
@@ -86,6 +95,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     consoles,
     objects,
     openObjectDdl: (target) => openObjectDdl(target),
+    ddl,
+    openDdlDocument: (sql) => openSqlDocument(sql),
     dataEditor,
     exporter,
     importer,
@@ -149,6 +160,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const ddl = await objects.ddl(target)
     const document = await vscode.workspace.openTextDocument({ content: ddl.ddl, language: 'sql' })
     await vscode.window.showTextDocument(document, { preview: ddl.cached })
+  }
+
+  const openSqlDocument = async (sql: string): Promise<void> => {
+    const document = await vscode.workspace.openTextDocument({ content: sql, language: 'sql' })
+    await vscode.window.showTextDocument(document, { preview: true })
   }
 
   const showObject = (target: ObjectTargetInput): void => {

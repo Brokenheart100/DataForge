@@ -238,3 +238,13 @@ export interface TableExportDriver extends DatabaseDriver {
     onBatch: (rows: readonly (readonly CellValue[])[]) => void | Promise<void>,
   ): Promise<StreamResult>
 }
+
+/**
+ * Structural changes are a capability: the application layer builds and
+ * validates statements, the driver only runs them — in one transaction when
+ * the engine supports transactional DDL.
+ */
+export interface DdlDriver extends DatabaseDriver {
+  applyDdl(statements: readonly string[]): Promise<number>
+}
+

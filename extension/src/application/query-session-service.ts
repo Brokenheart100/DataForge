@@ -37,6 +37,14 @@ export class QuerySessionService {
     return this.sessions.has(this.keyOf(connectionId, consoleId))
   }
 
+  /** True when any console or plain session holds a transaction on this connection. */
+  hasOpenTransaction(connectionId: string): boolean {
+    for (const session of this.sessions.values()) {
+      if (session.connectionId === connectionId) return true
+    }
+    return false
+  }
+
   async begin(connectionId: string, database?: string, consoleId?: string): Promise<void> {
     const key = this.keyOf(connectionId, consoleId)
     if (this.sessions.has(key)) {

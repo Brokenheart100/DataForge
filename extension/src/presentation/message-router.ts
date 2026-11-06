@@ -9,6 +9,8 @@ import type {
   DataExportInput,
   DataPageDto,
   DataPageInput,
+  DdlApplyInput,
+  DdlPlanDto,
   ExplainInput,
   ImportPreviewInput,
   ImportStartInput,
@@ -17,6 +19,7 @@ import type {
   ObjectSearchInput,
   ObjectTargetInput,
   QueryInput,
+  SchemaDiffInput,
   SessionStateDto,
   RequestOutput,
   RequestType,
@@ -28,6 +31,7 @@ import { REQUEST_TYPES } from '@shared/protocol'
 import type { Logger } from '../application/ports'
 import type { ConnectionService } from '../application/connection-service'
 import type { ConsoleService } from '../application/console-service'
+import type { DdlService } from '../application/ddl-service'
 import type { ImportService } from '../application/import-service'
 import type { ObjectService } from '../application/object-service'
 import type { CommitResult, DataPage, DataEditorService } from '../application/data-editor-service'
@@ -109,6 +113,71 @@ const objectTargetSchema = z.object({
   name: z.string().min(1).max(63),
   kind: z.enum(['table', 'view', 'materialized view', 'partitioned table', 'foreign table']),
 })
+
+const schemaScopeSchema = z.object({
+  database: z.string().min(1).max(63).optional(),
+  schema: z.string().min(1).max(63),
+})
+
+const ddlColumnSchema = z.object({
+  name: z.string().min(1).max(63),
+  dataType: z.string().min(1).max(80),
+  nullable: z.boolean().optional(),
+  defaultValue: z.string().max(400).nullable().optional(),
+  primaryKey: z.boolean().optional(),
+  unique: z.boolean().optional(),
+})
+
+const ddlIndexSchema = z.object({
+  name: z.string().min(1).max(63).optional(),
+  unique: z.boolean().optional(),
+  columns: z.array(z.string().min(1).max(63)).min(1).max(8),
+})
+
+const ddlAlterColumnSchema = z.object({
+  name: z.string().min(1).max(63),
+  dataType: z.string().min(1).max(80).optional(),
+  nullable: z.boolean().optional(),
+  defaultValue: z.string().max(400).nullable().optional(),
+})
+
+const ddlTargetSchema = {
+  connectionId: z.string().min(1).max(128),
+  database: z.string().min(1).max(63).optional(),
+  schema: z.string().min(1).max(63),
+  table: z.string().min(1).max(63),
+}
+
+const ddlPlanSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('create table'),
+    ...ddlTargetSchema,
+    columns: z.array(ddlColumnSchema).min(1).max(64),
+    ifNotExists: z.boolean().optional(),
+  }),
+  z.object({
+    kind: z.literal('add column'),
+    ...ddlTargetSchema,
+    column: ddlColumnSchema,
+    ifNotExists: z.boolean().optional(),
+  }),
+  z.object({
+    kind: z.literal('drop table'),
+    ...ddlTargetSchema,
+    ifExists: z.boolean().optional(),
+  }),
+  z.object({
+    kind: z.literal('create index'),
+    ...ddlTargetSchema,
+    index: ddlIndexSchema,
+    ifNotExists: z.boolean().optional(),
+  }),
+  z.object({
+    kind: z.literal('alter column'),
+    ...ddlTargetSchema,
+    column: ddlAlterColumnSchema,
+  }),
+])
 
 /** Per-request payload schemas: every message from the webview is untrusted. */
 const payloadSchemas: Readonly<Record<RequestType, z.ZodType>> = {
@@ -208,6 +277,14 @@ const payloadSchemas: Readonly<Record<RequestType, z.ZodType>> = {
   }),
   'import.cancel': z.object({ targetRequestId: z.string().min(1).max(128) }),
   'data.cancel': z.object({ targetRequestId: z.string().min(1).max(128) }),
+  'schema.diff': z.object({
+    connectionId: z.string().min(1).max(128),
+    left: schemaScopeSchema,
+    right: schemaScopeSchema,
+  }),
+  'ddl.preview': ddlPlanSchema,
+  'ddl.apply': z.object({ plan: ddlPlanSchema, confirm: z.string().max(120).optional() }),
+  'ddl.openInEditor': ddlPlanSchema,
   'workbench.ready': z.null(),
 }
 
@@ -234,8 +311,12 @@ export interface MessageRouterDeps {
   readonly objects?: ObjectService
   /** Optional so router tests can run without the import wizard. */
   readonly importer?: ImportService
+  /** Optional so router tests can run without the DDL service. */
+  readonly ddl?: DdlService
   /** Opens the DDL as a read-only document in the editor. */
   readonly openObjectDdl?: (target: ObjectTargetInput) => Promise<void>
+  /** Opens generated statements as a read-only document in the editor. */
+  readonly openDdlDocument?: (sql: string) => Promise<void>
 }
 
 function formatIssues(error: z.ZodError): string {
@@ -263,6 +344,11 @@ function objectService(deps: MessageRouterDeps): ObjectService {
 function importService(deps: MessageRouterDeps): ImportService {
   if (!deps.importer) throw new DataForgeError('internal', 'Importing files is not available in this build.')
   return deps.importer
+}
+
+function ddlService(deps: MessageRouterDeps): DdlService {
+  if (!deps.ddl) throw new DataForgeError('internal', 'Structural changes are not available in this build.')
+  return deps.ddl
 }
 
 function okResponse<T extends RequestType>(id: string, type: T, data: RequestOutput<T>): WebviewResponse {
@@ -452,6 +538,21 @@ export class MessageRouter {
           throw new DataForgeError('internal', 'Opening the DDL is not available in this build.')
         }
         await this.deps.openObjectDdl(as<ObjectTargetInput>(payload))
+        return null
+      }
+      case 'schema.diff':
+        return ddlService(this.deps).diff(as<SchemaDiffInput>(payload))
+      case 'ddl.preview':
+        return ddlService(this.deps).preview(as<DdlPlanDto>(payload))
+      case 'ddl.apply':
+        return ddlService(this.deps).apply(as<DdlApplyInput>(payload))
+      case 'ddl.openInEditor': {
+        const preview = ddlService(this.deps).preview(as<DdlPlanDto>(payload))
+        if (!this.deps.openDdlDocument) {
+          throw new DataForgeError('internal', 'Opening the DDL is not available in this build.')
+        }
+        const sql = preview.statements.map((statement) => statement.sql).join('\n\n')
+        await this.deps.openDdlDocument(sql)
         return null
       }
       case 'import.preview':

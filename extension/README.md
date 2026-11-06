@@ -34,6 +34,13 @@ adds a MySQL adapter behind the same driver ports:
   and stream it in batches of 1000 rows. A failing batch rolls back and the
   first 100 problem rows are reported with line numbers; the run can be
   cancelled from the same dialog.
+- **Schema changes** — create a table, add or alter a column (type, default,
+  nullability), create an index or drop a table from a **Schema** dialog. The
+  host renders quoted SQL, grades each statement (`safe`/`caution`/`dangerous`)
+  and asks you to type the table name (drop) or `CONFIRM` (type change, new
+  `NOT NULL`) before applying. DDL is refused on read-only connections and
+  while a transaction is open; previewed SQL can be copied or opened in an
+  editor tab.
 - **Safety** — passwords never leave the extension host: they live in
   `SecretStorage`, never in settings, logs or webview messages. Mark a profile
   **read-only** and only `select`/`with`/`show`/`explain` statements are sent,

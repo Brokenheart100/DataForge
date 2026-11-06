@@ -9,6 +9,7 @@ import type { ConnectionConfig } from '../../domain/connection'
 import type {
   ColumnInfo,
   DataEditingDriver,
+  DdlDriver,
   DataRow,
   DriverCapabilities,
   DriverPageInput,
@@ -272,7 +273,12 @@ export function mapPgError(error: unknown): DataForgeError {
 }
 
 export class PostgresDriver
-  implements DataEditingDriver, TableExportDriver, TransactionalDriver, ObjectCatalogDriver
+  implements
+    DataEditingDriver,
+    TableExportDriver,
+    TransactionalDriver,
+    ObjectCatalogDriver,
+    DdlDriver
 {
   readonly kind = 'postgresql'
   readonly capabilities: DriverCapabilities = { transactions: true, returning: true, identifierQuote: '"' }
@@ -587,6 +593,33 @@ ${body}
    * moved on (`xmin` changed) or was deleted, which aborts the transaction
    * with a {@link DataConflictError} listing the identities.
    */
+  /**
+   * Runs structural statements in one transaction.
+   *
+   * PostgreSQL DDL is transactional, so a failing `alter`/`create` rolls back
+   * everything before it. The caller has already validated the plan.
+   */
+  async applyDdl(statements: readonly string[]): Promise<number> {
+    if (statements.length === 0) return 0
+    const client = await this.acquire()
+    let destroyClient = false
+    try {
+      await client.query('begin')
+      for (const statement of statements) await client.query(statement)
+      await client.query('commit')
+      return statements.length
+    } catch (error) {
+      try {
+        await client.query('rollback')
+      } catch {
+        destroyClient = true
+      }
+      throw mapPgError(error)
+    } finally {
+      client.release(destroyClient)
+    }
+  }
+
   async applyMutations(batch: MutationBatch): Promise<readonly MutationResult[]> {
     if (batch.mutations.length === 0) return []
     const client = await this.acquire()

@@ -11,7 +11,9 @@ Phases 1–3 are complete and Phase 4 added a second driver: manage connections,
 browse schemas/tables/views/columns, run SQL, read results, edit table rows in a
 grid with server-side filters, multi-column sorting, paste-as-rows, transactional
 commit, optimistic locking and CSV export, import CSV/JSON files through a
-mapping wizard into existing tables, and complete
+mapping wizard into existing tables, preview and apply schema changes
+(create table, add or alter a column, index, drop) behind a typed confirmation,
+and complete
 SQL through VS Code's own language services. PostgreSQL gets the full feature
 set; MySQL currently covers connections, metadata and queries. The explorer nests
 `Databases → database → schemas → tables`: extra databases open read-only, and a

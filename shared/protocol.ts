@@ -14,8 +14,12 @@
  * v5 adds the database dimension: connection-scoped requests accept an optional
  * `database`, which defaults to the connection's own database. `database.list`
  * enumerates what the server exposes so the explorer can nest by database.
+ *
+ * v6 adds structural changes: `ddl.preview` / `ddl.apply` carry a structured
+ * plan (never raw SQL) that the host turns into statements, and `schema.diff`
+ * compares two scopes.
  */
-export const PROTOCOL_VERSION = 5
+export const PROTOCOL_VERSION = 6
 
 export type SslMode = 'disable' | 'require' | 'verify-full'
 export type ConnectionState = 'disconnected' | 'connected' | 'error'
@@ -340,6 +344,142 @@ export interface ImportResultDto {
   durationMs: number
 }
 
+/**
+ * Structural change plans are data, not SQL: the webview describes intent and
+ * the host owns identifier quoting, type checks and the final statement text.
+ */
+export type DdlRisk = 'safe' | 'caution' | 'dangerous'
+
+export interface DdlColumnPlanDto {
+  name: string
+  /** PostgreSQL type text, e.g. `text`, `numeric(10,2)`, `timestamptz`. */
+  dataType: string
+  nullable?: boolean
+  /** Literal or small allow-listed function, rendered by the host. */
+  defaultValue?: string | null
+  primaryKey?: boolean
+  unique?: boolean
+}
+
+export interface DdlIndexPlanDto {
+  /** Defaults to `<table>_<columns>_idx` when omitted. */
+  name?: string
+  unique?: boolean
+  columns: string[]
+}
+
+/**
+ * A column change. Every field is optional: omitted means "keep", while
+ * `defaultValue: null` drops the current default.
+ */
+export interface DdlAlterColumnPlanDto {
+  name: string
+  dataType?: string
+  nullable?: boolean
+  defaultValue?: string | null
+}
+
+export type DdlPlanDto =
+  | {
+      kind: 'create table'
+      connectionId: string
+      database?: string
+      schema: string
+      table: string
+      columns: DdlColumnPlanDto[]
+      ifNotExists?: boolean
+    }
+  | {
+      kind: 'add column'
+      connectionId: string
+      database?: string
+      schema: string
+      table: string
+      column: DdlColumnPlanDto
+      ifNotExists?: boolean
+    }
+  | {
+      kind: 'drop table'
+      connectionId: string
+      database?: string
+      schema: string
+      table: string
+      ifExists?: boolean
+    }
+  | {
+      kind: 'create index'
+      connectionId: string
+      database?: string
+      schema: string
+      table: string
+      index: DdlIndexPlanDto
+      ifNotExists?: boolean
+    }
+  | {
+      kind: 'alter column'
+      connectionId: string
+      database?: string
+      schema: string
+      table: string
+      column: DdlAlterColumnPlanDto
+    }
+
+export interface DdlStatementDto {
+  sql: string
+  risk: DdlRisk
+  /** Why the statement is risky, or what the user should know before running it. */
+  note?: string
+}
+
+export interface DdlPreviewDto {
+  statements: DdlStatementDto[]
+  /** True when at least one statement is `dangerous`. */
+  requiresConfirmation: boolean
+  /** Exact text the user must type before `ddl.apply` accepts the plan. */
+  expectedConfirmation: string | null
+  warnings: string[]
+}
+
+export interface DdlApplyInput {
+  plan: DdlPlanDto
+  /** Typed confirmation; required only when the preview asked for it. */
+  confirm?: string
+}
+
+export interface DdlApplyDto {
+  statements: number
+  durationMs: number
+}
+
+export interface SchemaScopeDto {
+  database?: string
+  schema: string
+}
+
+export interface SchemaDiffInput {
+  connectionId: string
+  left: SchemaScopeDto
+  right: SchemaScopeDto
+}
+
+export interface SchemaDiffEntryDto {
+  schema: string
+  name: string
+  kind: ObjectKind
+}
+
+export interface SchemaDiffChangedDto {
+  name: string
+  leftKind: ObjectKind
+  rightKind: ObjectKind
+}
+
+export interface SchemaDiffDto {
+  added: SchemaDiffEntryDto[]
+  removed: SchemaDiffEntryDto[]
+  changed: SchemaDiffChangedDto[]
+}
+
 export interface ErrorDto {
   code: ErrorCode
   message: string
@@ -378,6 +518,11 @@ export interface RequestCatalogue {
   'object.stats': { input: ObjectTargetInput; output: ObjectStatsDto }
   /** Opens a read-only SQL document in the editor with the object's DDL. */
   'object.openInEditor': { input: ObjectTargetInput; output: null }
+  'schema.diff': { input: SchemaDiffInput; output: SchemaDiffDto }
+  'ddl.preview': { input: DdlPlanDto; output: DdlPreviewDto }
+  'ddl.apply': { input: DdlApplyInput; output: DdlApplyDto }
+  /** Opens the previewed statements as a read-only SQL document. */
+  'ddl.openInEditor': { input: DdlPlanDto; output: null }
   'query.execute': { input: QueryInput; output: QueryResultDto }
   'query.cancel': { input: { targetRequestId: string }; output: null }
   'query.explain': { input: ExplainInput; output: ExplainResultDto }
@@ -418,6 +563,10 @@ export const REQUEST_TYPES = [
   'object.ddl',
   'object.stats',
   'object.openInEditor',
+  'schema.diff',
+  'ddl.preview',
+  'ddl.apply',
+  'ddl.openInEditor',
   'query.execute',
   'query.cancel',
   'query.explain',

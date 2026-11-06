@@ -14,6 +14,8 @@
 | SQL 与结果 | 执行全部/选中、取消、10 000 行上限、200 行网格分页、错误码展示 |
 | 数据编辑 | 事务化批量提交、`xmin` 乐观锁、无主键/视图只读、冲突整批回滚 |
 | 导出 | CSV 流式导出（`pg-cursor`，每批 1000 行），宿主选路径 |
+| 导入 | CSV/JSON 流式导入：宿主选文件、列映射预览、默认 1000 行/批、错误行报告、可取消 |
+| 结构变更 | 建表/加列/改列（类型、默认值、NOT NULL）/删表/建索引，SQL 预览 + 风险分级 + 输入确认；只读连接与事务中拒绝；schema diff 宿主 API |
 | 编辑器能力 | 补全（复用 schema 缓存）、格式化、历史 200 条、EXPLAIN、状态栏耗时 |
 | 事务 | 显式 `BEGIN/COMMIT/ROLLBACK`，关闭面板/断开连接自动回滚 |
 | 控制台 | 每个连接多个标签页，各自保留 SQL 与结果；关闭即取消运行中的查询并回滚该控制台的事务（0.1.4） |
@@ -137,17 +139,19 @@ PostgreSQL 实现 → 树搜索与 DDL 面板 → 测试。
 
 ## 9. 阶段 F：结构变更
 
+状态：✅ 实现完成（建表/加列/改列/建索引/删表，SQL 预览 + 风险分级 + 输入确认；只读与事务保护；schema diff 宿主 API 完成，webview 入口留待后续）。
+
 目标：建表/加列/改类型/索引的可视化编辑，先生成 SQL 预览再执行。
 
-批次：`application/ddl-planner.ts` → 协议与预览 UI → 驱动 `applyDdl` → 测试。
+批次：`application/ddl-service.ts` + `infrastructure/postgres/ddl-sql.ts` → 协议与预览 UI → 驱动 `applyDdl` → 测试。
 
 ### 9.1 Todo List
 
-- [ ] `DdlPlanner`：结构化模型 → SQL（引用标识符、按方言）
-- [ ] 风险分级：DROP/改类型/加 NOT NULL 标红，需输入确认
-- [ ] 预览面板：可复制、可在编辑器中执行
-- [ ] 只读连接与事务中禁止 DDL，给出原因
-- [ ] schema diff（简版）：两 scope 间对象差异列表
+- [x] `DdlPlanner`：结构化模型 → SQL（`buildDdlStatements`，引用标识符；create table/add column/alter column/create index/drop table）
+- [x] 风险分级：DROP、改类型、加 NOT NULL 标红（`safe`/`caution`/`dangerous`），删表需输入表名，其余危险操作输入 `CONFIRM`
+- [x] 预览面板：逐条 SQL、风险徽标与说明，可复制、在编辑器中打开、一键执行
+- [x] 只读连接与事务中禁止 DDL，给出原因（`DdlService.apply` 前置检查 + `hasOpenTransaction`）
+- [x] schema diff（简版）：`schema.diff` 比较两个 scope 的对象增删与类型变化（宿主 API 与测试完成；界面入口待补）
 
 ## 10. 阶段 G：驱动广度与 SSH
 
