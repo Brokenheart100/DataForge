@@ -6,6 +6,10 @@
   "private": true,
   "publisher": "dataforge",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Brokenheart100/DataForge.git"
+  },
   "engines": {
     "vscode": "^1.115.0"
   },

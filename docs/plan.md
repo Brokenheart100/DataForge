@@ -11,7 +11,7 @@
 | Phase 2 | 数据编辑、事务、分页/排序/筛选、CSV 导出 | ✅ 实现完成 | 35 / 35（DoD 7 / 7） |
 | Phase 3 | 补全、格式化、历史、诊断、EXPLAIN、显式事务 | ✅ 实现完成 | 12 / 12 |
 | Phase 4 | 多驱动（MySQL 已落地，SQLite / SQL Server 未开始） | ✅ 实现完成 | 6 / 6 |
-| 工程化 | 跨阶段待办（CI、发布、清理） | 🟡 进行中 | 3 / 11 |
+| 工程化 | 跨阶段待办（CI、发布、清理） | 🟡 进行中 | 5 / 11 |
 
 图例：`[x]` 已完成 · `[ ]` 待办 · 每批完成即勾选并跑一次 `type-check` + `test:unit`。
 
@@ -232,12 +232,12 @@ Phase 3 不重写编辑器：补全/格式化/诊断全部通过 VS Code 语言 
 
 - [x] `.gitignore` 覆盖构建产物、`*.vsix`、`.tmp/`、`.vscode-test/`
 - [x] UI 组件库调研（`brutxui` 不存在、`brutx-ui` 是 React、`neobrutalism-vue` 维护风险 → 自建设计令牌）
-- [ ] 首次 git commit（当前仓库零提交、全部文件未跟踪）
+- [x] 首次 git commit（仓库已有提交，`origin` 指向 `github.com/Brokenheart100/DataForge`）
 - [ ] 替换 `webview/e2e/vue.spec.ts`（仍断言 `You did it!`，已失效）
 - [ ] 移除未使用依赖 `vite-plugin-vue-devtools`；`tailwindcss` 移入 `devDependencies`
-- [ ] `npm audit --omit=dev` 处理安装时报告的 5 个 moderate
-- [ ] CI：type-check + unit + lint + package；PostgreSQL 用 service container 跑集成测试
-- [ ] 发布元数据：真实 `publisher`、`repository`、`icon`，并把 `LICENSE` 打进 VSIX
+- [ ] `npm audit --omit=dev` 处理安装时报告的 moderate 漏洞（当前 17 条，含 mysql2 传递依赖）
+- [x] CI/CD：GitHub Actions（`type-check` + `lint` + `unit` + `package`，Node 22/24 矩阵，PostgreSQL 17 与 MySQL 8.4 service container；`v*` tag 触发发布）
+- [ ] 发布元数据：真实 `publisher`、`icon`，并把 `LICENSE` 打进 VSIX（`repository` 已指向 GitHub）
 - [ ] 性能预算与可访问性清单（大结果集、键盘导航、对比度）
 
 **工程化补充（2）**

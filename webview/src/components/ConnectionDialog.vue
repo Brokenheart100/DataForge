@@ -191,7 +191,8 @@ function close(): void {
       <div class="grid grid-cols-2 gap-3">
         <label class="col-span-2">
           <span class="df-label">Type</span>
-          <select class="df-input" :value="form.kind" @change="applyKind(($event.target as HTMLSelectElement).value as ConnectionKind)">
+          <select class="df-input" :value="form.kind"
+            @change="applyKind(($event.target as HTMLSelectElement).value as ConnectionKind)">
             <option v-for="preset in KIND_PRESETS" :key="preset.value" :value="preset.value">{{ preset.label }}</option>
           </select>
         </label>

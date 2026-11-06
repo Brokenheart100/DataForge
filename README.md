@@ -1,5 +1,7 @@
 # DataForge
 
+[![CI](https://github.com/Brokenheart100/DataForge/actions/workflows/ci.yml/badge.svg)](https://github.com/Brokenheart100/DataForge/actions/workflows/ci.yml)
+
 A PostgreSQL-first database IDE for VS Code with a neo-brutalist workbench.
 Phases 1–3 are complete and Phase 4 added a second driver: manage connections,
 browse schemas/tables/views/columns, run SQL, read results, edit table rows in a
@@ -70,6 +72,33 @@ Without those variables the suites are skipped.
 docker run -d --rm --name dataforge-mysql -e MYSQL_ROOT_PASSWORD=forge_test -e MYSQL_DATABASE=forge -p 3307:3306 mysql:8.4
 DATAFORGE_TEST_MYSQL="mysql://root:forge_test@127.0.0.1:3307/forge" npm run test:unit --workspace extension
 ```
+
+## CI/CD
+
+Two GitHub Actions workflows live in `.github/workflows`:
+
+| Workflow | Trigger | What it does |
+| --- | --- | --- |
+| [ci.yml](.github/workflows/ci.yml) | push to `main`, pull requests, manual | `verify` type-checks and builds on Node 22.x and 24.x, `lint` runs oxlint + ESLint without autofix, `test` runs Vitest against PostgreSQL 17 and MySQL 8.4 service containers, and `package` uploads `dataforge.vsix` as an artifact. |
+| [release.yml](.github/workflows/release.yml) | `v*` tags, manual | Repeats the checks, verifies the tag matches `extension/package.json`'s version, packages the VSIX, creates or updates the GitHub release, and publishes to the Marketplace when the `VSCE_PAT` secret exists. |
+
+The integration suites run automatically: the test job exports
+`DATAFORGE_TEST_PG` and `DATAFORGE_TEST_MYSQL` pointing at its service
+containers, so no Docker commands are needed on a runner.
+
+To release:
+
+```bash
+npm version 0.2.0 --workspace extension --no-git-tag-version
+git commit -am "Release 0.2.0"
+git tag v0.2.0
+git push origin main --tags
+```
+
+Set the `VSCE_PAT` secret (an Azure DevOps personal access token with the
+Marketplace *Manage* scope) only after replacing the placeholder `publisher` in
+`extension/package.json`. Without the secret the release job still publishes the
+GitHub release and skips the Marketplace step.
 
 ## Documentation
 

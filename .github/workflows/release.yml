@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, test and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: forge_test
+          POSTGRES_DB: forge
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d forge"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: forge_test
+          MYSQL_DATABASE: forge
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pforge_test --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+          --health-start-period 30s
+    env:
+      DATAFORGE_TEST_PG: postgres://postgres:forge_test@127.0.0.1:5432/forge
+      DATAFORGE_TEST_MYSQL: mysql://root:forge_test@127.0.0.1:3306/forge
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Check tag matches extension/package.json version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          package_version="$(node -p "require('./extension/package.json').version")"
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [ "$package_version" != "$tag_version" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match extension/package.json version ${package_version}"
+            exit 1
+          fi
+          echo "Releasing DataForge ${package_version}"
+      - name: Type-check both workspaces
+        run: npm run type-check
+      - name: oxlint
+        run: npx oxlint .
+      - name: Build extension and webview bundles
+        run: npm run build
+      - name: Unit and integration tests
+        run: npm run test:unit
+      - name: Build and package
+        run: npm run package
+      - name: Create or update GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" dataforge.vsix --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" dataforge.vsix \
+              --title "DataForge ${GITHUB_REF_NAME}" \
+              --generate-notes
+          fi
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dataforge-vsix
+          path: dataforge.vsix
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish to Visual Studio Marketplace
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "${VSCE_PAT:-}" ]; then
+            echo "VSCE_PAT is not configured — skipping marketplace publish."
+            exit 0
+          fi
+          npx @vscode/vsce publish --packagePath dataforge.vsix --pat "${VSCE_PAT}"
