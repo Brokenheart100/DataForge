@@ -96,7 +96,7 @@
 | ddl | `ddl.preview`、`ddl.apply` | 结构变更预览与执行 |
 | import | `import.preview`、`import.start`、`import.cancel` | 导入向导与后台任务 |
 | session | `session.list`、`session.terminate` | 运维视图 |
-| data | `data.*`、`transaction.*`、`query.explain` | 现有能力，输入统一增加可选 `database`（已交付） |
+| data | `data.*`、`transaction.*`、`query.explain` | 现有能力，输入统一增加可选 `database`（已交付）；`data.page` 支持 `filters` 与多列 `orderBy` |
 
 所有输入中的 `database` 可选（缺省=连接主库），保证 0.1.x 客户端仍可工作；
 `PROTOCOL_VERSION` 已升到 5。

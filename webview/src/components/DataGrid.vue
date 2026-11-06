@@ -5,6 +5,7 @@ import {
   AllCommunityModule,
   ModuleRegistry,
   themeQuartz,
+  type CellDoubleClickedEvent,
   type CellKeyDownEvent,
   type ColDef,
   type GridApi,
@@ -45,8 +46,13 @@ const gridTheme = themeQuartz.withParams({
 
 const rowSelection = { mode: 'singleRow' } satisfies RowSelectionOptions
 
-function isCellEditable(row: GridRow | undefined, columnName: string, primaryKey: boolean): boolean {
-  if (!store.editable) return false
+function isCellEditable(
+  row: GridRow | undefined,
+  columnName: string,
+  primaryKey: boolean,
+  generated = false,
+): boolean {
+  if (!store.editable || generated) return false
   if (row?.status === 'deleted') return false
   if (row?.status === 'inserted') return true
   // Changing a primary key in place would move the row under its own identity.
@@ -55,7 +61,11 @@ function isCellEditable(row: GridRow | undefined, columnName: string, primaryKey
 
 const columnDefs = computed<ColDef<GridRow>[]>(() =>
   store.columns.map((column) => {
-    const header = column.isPrimaryKey ? `${column.name} · PK` : column.name
+    const header = column.generated
+      ? `${column.name} · computed`
+      : column.isPrimaryKey
+        ? `${column.name} · PK`
+        : column.name
     return {
       colId: column.name,
       headerName: header,
@@ -70,7 +80,8 @@ const columnDefs = computed<ColDef<GridRow>[]>(() =>
         store.setCell(params.data.rowId, column.name, params.newValue as CellValue)
         return true
       },
-      editable: (params: { data?: GridRow }) => isCellEditable(params.data, column.name, column.isPrimaryKey),
+      editable: (params: { data?: GridRow }) =>
+        isCellEditable(params.data, column.name, column.isPrimaryKey, column.generated),
     }
   }),
 )
@@ -89,9 +100,46 @@ function onSelectionChanged(event: SelectionChangedEvent): void {
   store.setSelection(event.api.getSelectedRows().map((row) => row.rowId))
 }
 
+const pageJump = ref('')
+
+async function jumpToPage(): Promise<void> {
+  const requested = Number.parseInt(pageJump.value, 10)
+  pageJump.value = ''
+  if (!Number.isFinite(requested)) return
+  await store.gotoPage(requested)
+}
+
 async function onSortChanged(event: SortChangedEvent): Promise<void> {
-  const sorted = event.api.getColumnState().find((state) => state.sort !== null && state.sort !== undefined)
-  await store.sortBy(sorted?.colId ?? '', sorted?.sort === 'desc' ? 'desc' : sorted ? 'asc' : null)
+  const sorted = event.api
+    .getColumnState()
+    .filter((state) => state.sort === 'asc' || state.sort === 'desc')
+    .sort((left, right) => (left.sortIndex ?? 0) - (right.sortIndex ?? 0))
+    .map((state) => ({ column: state.colId, direction: state.sort === 'desc' ? ('desc' as const) : ('asc' as const) }))
+  await store.sortBy(sorted)
+}
+
+const preview = ref<{ column: string; text: string } | null>(null)
+
+function previewValue(column: string, value: CellValue | undefined): boolean {
+  if (value === null || value === undefined) return false
+  const text = String(value)
+  const trimmed = text.trim()
+  if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return false
+  try {
+    preview.value = { column, text: JSON.stringify(JSON.parse(trimmed), null, 2) }
+    return true
+  } catch {
+    // Not valid JSON; leave the cell to its normal editor.
+    return false
+  }
+}
+
+function onCellDoubleClicked(event: CellDoubleClickedEvent<GridRow>): void {
+  const column = event.colDef.colId
+  if (!column || !event.data) return
+  if (previewValue(column, event.data.values[column])) {
+    gridApi.value?.stopEditing(true)
+  }
 }
 
 function onCellKeyDown(event: CellKeyDownEvent<GridRow>): void {
@@ -123,6 +171,7 @@ function onCellKeyDown(event: CellKeyDownEvent<GridRow>): void {
         @selection-changed="onSelectionChanged"
         @sort-changed="onSortChanged"
         @cell-key-down="onCellKeyDown"
+        @cell-double-clicked="onCellDoubleClicked"
       />
     </div>
 
@@ -133,6 +182,19 @@ function onCellKeyDown(event: CellKeyDownEvent<GridRow>): void {
       </span>
       <span v-if="store.readOnlyReason" class="df-grid-readonly">{{ store.readOnlyReason }}</span>
       <span class="df-grid-spacer" />
+      <label class="df-grid-jump">
+        Go to
+        <input
+          v-model="pageJump"
+          class="df-input df-grid-jump-input"
+          type="number"
+          min="1"
+          :max="store.totalPages"
+          :disabled="store.loading || store.totalPages <= 1"
+          aria-label="Page number"
+          @keydown.enter.prevent="jumpToPage"
+        />
+      </label>
       <button class="df-btn df-btn-ghost" :disabled="store.loading || store.offset === 0" @click="store.gotoPage(1)">
         « First
       </button>
@@ -153,6 +215,20 @@ function onCellKeyDown(event: CellKeyDownEvent<GridRow>): void {
       >
         Last »
       </button>
+    </div>
+
+    <div
+      v-if="preview"
+      class="fixed inset-0 z-40 grid place-items-center bg-black/40 p-6"
+      @click.self="preview = null"
+    >
+      <section class="df-panel df-cell-preview" role="dialog" aria-modal="true" :aria-label="`Value of ${preview.column}`">
+        <header class="df-cell-preview-header">
+          <span class="df-code text-xs font-bold">{{ preview.column }}</span>
+          <button class="df-btn df-btn-ghost h-7 px-2 text-[11px]" type="button" @click="preview = null">Close</button>
+        </header>
+        <pre class="df-code df-cell-preview-body">{{ preview.text }}</pre>
+      </section>
     </div>
   </div>
 </template>
@@ -192,6 +268,21 @@ function onCellKeyDown(event: CellKeyDownEvent<GridRow>): void {
   padding: 6px 2px 0;
 }
 
+.df-grid-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--df-muted);
+}
+
+.df-grid-jump-input {
+  width: 56px;
+  height: 24px;
+  padding: 0 4px;
+  font-size: 11px;
+}
+
 .df-grid-count {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -220,6 +311,34 @@ function onCellKeyDown(event: CellKeyDownEvent<GridRow>): void {
   background: color-mix(in srgb, var(--df-red) 18%, transparent) !important;
   text-decoration: line-through;
   opacity: 0.75;
+}
+
+.df-cell-preview {
+  width: min(640px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.df-cell-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.df-cell-preview-body {
+  min-height: 48px;
+  max-height: 56vh;
+  flex: 0 1 auto;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  padding: 8px;
+  background: var(--vscode-editor-background, #fff);
 }
 
 :deep(.ag-cell-inline-editing) {

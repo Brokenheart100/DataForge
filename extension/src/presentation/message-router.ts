@@ -60,6 +60,12 @@ const sortSchema = z.object({
   direction: z.enum(['asc', 'desc']),
 })
 
+const filterSchema = z.object({
+  column: z.string().min(1).max(63),
+  operator: z.enum(['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains', 'is null', 'is not null']),
+  value: cellValueSchema.optional(),
+})
+
 const dataPageSchema = z.object({
   connectionId: z.string().min(1).max(128),
   database: z.string().min(1).max(63).optional(),
@@ -68,6 +74,7 @@ const dataPageSchema = z.object({
   limit: z.number().int().min(1).max(1_000),
   offset: z.number().int().min(0).max(1_000_000),
   orderBy: z.array(sortSchema).max(5),
+  filters: z.array(filterSchema).max(10).optional(),
 })
 
 const rowChangeSchema = z.discriminatedUnion('kind', [
@@ -241,6 +248,7 @@ function toPageDto(page: DataPage): DataPageDto {
       isPrimaryKey: column.isPrimaryKey,
       defaultValue: column.defaultValue,
       ordinal: column.ordinal,
+      generated: column.generated === true,
     })),
     primaryKey: [...page.primaryKey],
     rows: page.rows.map((row) => ({ values: [...row.values], identity: { ...row.identity }, version: row.version })),

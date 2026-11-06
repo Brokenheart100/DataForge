@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
-import type { CellValue, DataChangeDto, DataColumnDto, DataPageDto, DataRowDto, DataSortDto } from '@shared/protocol'
+import type { CellValue, DataChangeDto, DataColumnDto, DataFilterDto, DataPageDto, DataRowDto, DataSortDto } from '@shared/protocol'
 
 import { HostRequestError, host } from '../lib/host'
 
@@ -72,6 +72,7 @@ export const useDataEditorStore = defineStore('data-editor', () => {
   const limit = ref(PAGE_SIZE)
   const offset = ref(0)
   const orderBy = ref<DataSortDto[]>([])
+  const filters = ref<DataFilterDto[]>([])
   const editable = ref(false)
   const readOnlyReason = ref<string | null>(null)
   const loading = ref(false)
@@ -127,6 +128,7 @@ export const useDataEditorStore = defineStore('data-editor', () => {
           limit: limit.value,
           offset: Math.max(0, nextOffset),
           orderBy: orderBy.value,
+          filters: filters.value,
         }),
       )
     } catch (cause) {
@@ -147,6 +149,7 @@ export const useDataEditorStore = defineStore('data-editor', () => {
     schema.value = nextSchema
     relation.value = nextRelation
     orderBy.value = []
+    filters.value = []
     offset.value = 0
     rows.value = []
     conflictKeys.value = []
@@ -171,9 +174,27 @@ export const useDataEditorStore = defineStore('data-editor', () => {
     await load((clamped - 1) * limit.value)
   }
 
-  async function sortBy(column: string, direction: SortDirection | null): Promise<void> {
-    orderBy.value = direction === null ? [] : [{ column, direction }]
+  /** Keeps every sorted column so multi-column sorting survives page changes. */
+  async function sortBy(columns: DataSortDto[]): Promise<void> {
+    orderBy.value = columns
     await load(0)
+  }
+
+  async function setFilters(next: DataFilterDto[]): Promise<void> {
+    filters.value = next
+    await load(0)
+  }
+
+  function addFilter(filter: DataFilterDto): Promise<void> {
+    return setFilters([...filters.value, filter])
+  }
+
+  function removeFilter(index: number): Promise<void> {
+    return setFilters(filters.value.filter((_filter, position) => position !== index))
+  }
+
+  function clearFilters(): Promise<void> {
+    return setFilters([])
   }
 
   function setSelection(rowIds: string[]): void {
@@ -189,6 +210,48 @@ export const useDataEditorStore = defineStore('data-editor', () => {
     if (!row || row.status === 'deleted') return
     row.values = { ...row.values, [column]: value }
     if (row.status === 'clean' && row.values[column] !== row.original[column]) row.status = 'updated'
+  }
+
+  /** Splits pasted clipboard text into rows of cells: tabs first, commas as a fallback. */
+  function parsePastedText(text: string): string[][] {
+    const lineBreak = new RegExp(`${String.fromCharCode(13)}?${String.fromCharCode(10)}`)
+    const tab = String.fromCharCode(9)
+    const lines = text.split(lineBreak).filter((line) => line.trim().length > 0)
+    const delim = lines.some((line) => line.includes(tab)) ? tab : ','
+    return lines.map((line) => line.split(delim).map((cell) => cell.trim()))
+  }
+
+  function coercePastedValue(dataType: string, cell: string): CellValue {
+    if (cell === '' || cell.toUpperCase() === 'NULL') return null
+    const type = dataType.toLowerCase()
+    if (/^(int|numeric|decimal|real|double|bigint|smallint|serial)/.test(type)) {
+      const numeric = Number(cell)
+      if (Number.isFinite(numeric)) return numeric
+    }
+    if (/boolean|bool/.test(type)) {
+      const lower = cell.toLowerCase()
+      if (lower === 'true' || lower === 't' || lower === '1') return true
+      if (lower === 'false' || lower === 'f' || lower === '0') return false
+    }
+    return cell
+  }
+
+  /** Appends pasted rows as pending inserts, filling editable columns in column order. */
+  function appendPastedRows(text: string): number {
+    if (!editable.value) return 0
+    const targetColumns = columns.value.filter((column) => !column.isPrimaryKey)
+    const rowsToAdd = parsePastedText(text)
+    let added = 0
+    for (const cells of rowsToAdd) {
+      const rowId = addRow()
+      cells.slice(0, targetColumns.length).forEach((cell, index) => {
+        const column = targetColumns[index]
+        if (!column) return
+        setCell(rowId, column.name, coercePastedValue(column.dataType, cell))
+      })
+      added += 1
+    }
+    return added
   }
 
   function addRow(): string {
@@ -332,6 +395,7 @@ export const useDataEditorStore = defineStore('data-editor', () => {
     limit,
     offset,
     orderBy,
+    filters,
     editable,
     readOnlyReason,
     loading,
@@ -352,9 +416,14 @@ export const useDataEditorStore = defineStore('data-editor', () => {
     load,
     gotoPage,
     sortBy,
+    setFilters,
+    addFilter,
+    removeFilter,
+    clearFilters,
     setSelection,
     setCell,
     addRow,
+    appendPastedRows,
     deleteRow,
     undoRow,
     discardAll,

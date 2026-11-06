@@ -168,6 +168,19 @@ describe('DataEditorService.loadPage', () => {
     })
   })
 
+  it('passes server-side filters to the driver', async () => {
+    const { editor, driver, connectionId } = await setup()
+    await editor.loadPage({
+      connectionId,
+      schema: 'public',
+      relation: 'orders',
+      limit: 20,
+      offset: 0,
+      filters: [{ column: 'name', operator: 'contains', value: 'acme' }],
+    })
+    expect(driver.pageRequests[0]?.filters).toEqual([{ column: 'name', operator: 'contains', value: 'acme' }])
+  })
+
   it('marks a view as read-only but still returns its rows', async () => {
     const { editor, driver, connectionId } = await setup()
     driver.relations = [{ schema: 'public', name: 'orders', kind: 'view' }]

@@ -1,4 +1,5 @@
-import type { SortSpec } from '../../domain/driver'
+import type { CellValue } from '@shared/protocol'
+import type { DriverFilter, DriverFilterOperator, SortSpec } from '../../domain/driver'
 import { DataForgeError } from '../../domain/errors'
 
 /** One statement and the values bound to its `$n` placeholders. */
@@ -29,8 +30,73 @@ export function quoteQualified(schema: string, relation: string): string {
   return `${quoteIdentifier(schema)}.${quoteIdentifier(relation)}`
 }
 
-export function buildCountQuery(schema: string, relation: string): BuiltStatement {
-  return { text: `select count(*)::bigint as total from ${quoteQualified(schema, relation)}`, values: [] }
+export function buildCountQuery(
+  schema: string,
+  relation: string,
+  filters: readonly DriverFilter[] = [],
+): BuiltStatement {
+  const where = buildFilters(filters, filters.map((filter) => filter.column))
+  const tail = where.text ? ` where ${where.text}` : ''
+  return {
+    text: `select count(*)::bigint as total from ${quoteQualified(schema, relation)}${tail}`,
+    values: where.values,
+  }
+}
+
+const OPERATOR_SQL: Record<DriverFilterOperator, string> = {
+  eq: '=',
+  neq: '<>',
+  gt: '>',
+  gte: '>=',
+  lt: '<',
+  lte: '<=',
+  contains: 'ilike',
+  'is null': 'is null',
+  'is not null': 'is not null',
+}
+
+/**
+ * Builds a parameterised `where` clause. Column names are whitelisted against
+ * the selected columns, and every comparison value becomes a bound parameter.
+ */
+export function buildFilters(
+  filters: readonly DriverFilter[],
+  allowedColumns: readonly string[],
+  parameterOffset = 0,
+): { text: string; values: CellValue[] } {
+  const allowed = new Set(allowedColumns)
+  const values: CellValue[] = []
+  const parts: string[] = []
+  for (const filter of filters) {
+    if (!allowed.has(filter.column)) {
+      throw new DataForgeError('invalid_request', `Cannot filter by unknown column "${filter.column}".`)
+    }
+    const operator = OPERATOR_SQL[filter.operator]
+    if (!operator) {
+      throw new DataForgeError('invalid_request', `Unsupported filter operator "${filter.operator}".`)
+    }
+    const column = quoteIdentifier(filter.column)
+    if (filter.operator === 'is null' || filter.operator === 'is not null') {
+      if (filter.value !== undefined) {
+        throw new DataForgeError('invalid_request', `Filter on "${filter.column}" does not take a value.`)
+      }
+      parts.push(`${column} ${operator}`)
+      continue
+    }
+    if (filter.value === undefined) {
+      throw new DataForgeError('invalid_request', `Filter on "${filter.column}" needs a value.`)
+    }
+    if (filter.value === null && filter.operator !== 'eq' && filter.operator !== 'neq') {
+      throw new DataForgeError('invalid_request', `Filter on "${filter.column}" cannot compare null.`)
+    }
+    if (filter.operator === 'contains') {
+      values.push(`%${String(filter.value)}%`)
+    } else {
+      values.push(filter.value)
+    }
+    parts.push(`${column} ${operator} $${parameterOffset + values.length}`)
+  }
+  return { text: parts.join(' and '), values }
 }
 
 export interface PageQueryInput {
@@ -38,6 +104,7 @@ export interface PageQueryInput {
   readonly relation: string
   readonly columns: readonly string[]
   readonly orderBy: readonly SortSpec[]
+  readonly filters?: readonly DriverFilter[]
   readonly limit: number
   readonly offset: number
   /** Appends `xmin` for optimistic locking; views and foreign tables have none. */
@@ -56,14 +123,17 @@ export function buildPageQuery(input: PageQueryInput): BuiltStatement {
   if (input.columns.length === 0) throw new DataForgeError('invalid_request', 'A page needs at least one selected column.')
   const projection = input.columns.map(quoteIdentifier).join(', ')
   const version = input.withVersion === true ? ', xmin::text' : ''
-  const where = buildOrderBy(input.orderBy, input.columns)
+  const order = buildOrderBy(input.orderBy, input.columns)
+  const filter = buildFilters(input.filters ?? [], input.columns)
   const limit = clampNonNegative(input.limit)
   const offset = clampNonNegative(input.offset)
   const table = quoteQualified(input.schema, input.relation)
-  const tail = where ? ` ${where}` : ''
+  const where = filter.text ? ` where ${filter.text}` : ''
+  const tail = order ? ` ${order}` : ''
+  const limitIndex = filter.values.length + 1
   return {
-    text: `select ${projection}${version} from ${table}${tail} limit $1 offset $2`,
-    values: [limit, offset],
+    text: `select ${projection}${version} from ${table}${where}${tail} limit $${limitIndex} offset $${limitIndex + 1}`,
+    values: [...filter.values, limit, offset],
   }
 }
 

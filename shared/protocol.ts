@@ -168,6 +168,8 @@ export interface DataColumnDto {
   isPrimaryKey: boolean
   defaultValue: string | null
   ordinal: number
+  /** Computed columns cannot be written and are read-only in the grid. */
+  generated?: boolean
 }
 
 export interface DataRowDto {
@@ -175,6 +177,15 @@ export interface DataRowDto {
   identity: Record<string, CellValue>
   /** `xmin` the row was read with; null when it cannot be versioned. */
   version: string | null
+}
+
+export type DataFilterOperator = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains' | 'is null' | 'is not null'
+
+/** Server-side filter; `value` is bound as a parameter by the driver. */
+export interface DataFilterDto {
+  column: string
+  operator: DataFilterOperator
+  value?: CellValue
 }
 
 export interface DataPageInput {
@@ -186,6 +197,7 @@ export interface DataPageInput {
   limit: number
   offset: number
   orderBy: DataSortDto[]
+  filters?: DataFilterDto[]
 }
 
 export interface DataPageDto {

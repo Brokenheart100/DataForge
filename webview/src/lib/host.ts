@@ -1,5 +1,6 @@
 import type {
   BootstrapPayload,
+  CellValue,
   ConnectionDraft,
   ErrorCode,
   ErrorDto,
@@ -251,26 +252,60 @@ class DemoTransport implements Transport {
           durationMs: 4,
         })
         return
-      case 'data.page':
+      case 'data.page': {
+        const payload = request.payload as {
+          filters?: { column: string; operator: string; value?: CellValue }[]
+        }
+        const demoColumns = [
+          ['id', 'int4', false, true, 1],
+          ['customer', 'text', false, false, 2],
+          ['total', 'numeric', true, false, 3],
+          ['created_at', 'timestamptz', false, false, 4],
+        ] as const
+        const allRows = Array.from({ length: 24 }, (_, index) => ({
+          values: [index + 1, `Customer ${index + 1}`, (index + 1) * 12.5, '2026-11-06T09:12:00.000Z'] as CellValue[],
+          identity: { id: index + 1 },
+          version: String(1000 + index),
+        }))
+        const filters = payload.filters ?? []
+        const filtered = allRows.filter((row) =>
+          filters.every((filter) => {
+            const index = demoColumns.findIndex((column) => column[0] === filter.column)
+            const value = index === -1 ? null : row.values[index]
+            const text = String(value ?? '').toLowerCase()
+            const target = String(filter.value ?? '').toLowerCase()
+            switch (filter.operator) {
+              case 'is null':
+                return value === null
+              case 'is not null':
+                return value !== null
+              case 'contains':
+                return text.includes(target)
+              case 'eq':
+                return String(value) === String(filter.value)
+              default:
+                return true
+            }
+          }),
+        )
         succeed({
-          columns: [
-            { name: 'id', dataType: 'int4', nullable: false, isPrimaryKey: true, defaultValue: null, ordinal: 1 },
-            { name: 'customer', dataType: 'text', nullable: false, isPrimaryKey: false, defaultValue: null, ordinal: 2 },
-            { name: 'total', dataType: 'numeric', nullable: true, isPrimaryKey: false, defaultValue: null, ordinal: 3 },
-            { name: 'created_at', dataType: 'timestamptz', nullable: false, isPrimaryKey: false, defaultValue: null, ordinal: 4 },
-          ],
-          primaryKey: ['id'],
-          rows: Array.from({ length: 24 }, (_, index) => ({
-            values: [index + 1, `Customer ${index + 1}`, (index + 1) * 12.5, '2026-11-06T09:12:00.000Z'],
-            identity: { id: index + 1 },
-            version: String(1000 + index),
+          columns: demoColumns.map(([name, dataType, nullable, isPrimaryKey, ordinal]) => ({
+            name,
+            dataType,
+            nullable,
+            isPrimaryKey,
+            defaultValue: null,
+            ordinal,
           })),
-          totalRows: 24,
+          primaryKey: ['id'],
+          rows: filtered,
+          totalRows: filtered.length,
           limit: 200,
           offset: 0,
           editable: true,
         })
         return
+      }
       case 'data.commit':
         succeed({
           inserted: 0,

@@ -9,6 +9,7 @@ import type { WorkbenchConsole } from '@/stores/workbench'
 import ConnectionDialog from '@/components/ConnectionDialog.vue'
 import DdlPanel from '@/components/DdlPanel.vue'
 import DataGrid from '@/components/DataGrid.vue'
+import FilterBar from '@/components/FilterBar.vue'
 import PendingBar from '@/components/PendingBar.vue'
 import ResultTable from '@/components/ResultTable.vue'
 import { useDataEditorStore } from '@/stores/data-editor'
@@ -377,6 +378,7 @@ const stateChip = (connection: ConnectionSummary): string => {
 
         <div v-else class="flex min-h-0 flex-1 flex-col gap-2 p-3">
           <template v-if="dataEditor.isOpen">
+            <FilterBar />
             <PendingBar />
             <div v-if="dataEditor.error" class="df-panel flex items-start gap-2 border-forge-red p-2 text-[11px]">
               <AlertTriangle :size="14" class="mt-0.5 shrink-0 text-forge-red" />

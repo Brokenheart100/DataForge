@@ -176,6 +176,69 @@ describe('buildPageQuery', () => {
     expect(statement.values).toEqual([0, 0])
   })
 
+  it('binds filters before the paging values', () => {
+    const statement = buildPageQuery({
+      schema: 'public',
+      relation: 'orders',
+      columns: ['id', 'name'],
+      orderBy: [],
+      filters: [
+        { column: 'name', operator: 'contains', value: 'acme' },
+        { column: 'id', operator: 'gt', value: 10 },
+      ],
+      limit: 20,
+      offset: 40,
+    })
+    expect(statement.text).toBe(
+      'select "id", "name" from "public"."orders" where "name" ilike $1 and "id" > $2 limit $3 offset $4',
+    )
+    expect(statement.values).toEqual(['%acme%', 10, 20, 40])
+  })
+
+  it('counts with the same filters and no paging values', () => {
+    const statement = buildCountQuery('public', 'orders', [{ column: 'id', operator: 'is null' }])
+    expect(statement.text).toBe(
+      'select count(*)::bigint as total from "public"."orders" where "id" is null',
+    )
+    expect(statement.values).toEqual([])
+  })
+
+  it('rejects an unknown filter column and a value-less comparison', () => {
+    expect(() =>
+      buildPageQuery({
+        schema: 'public',
+        relation: 'orders',
+        columns: ['id'],
+        orderBy: [],
+        filters: [{ column: 'secret', operator: 'eq', value: 'x' }],
+        limit: 10,
+        offset: 0,
+      }),
+    ).toThrow('Cannot filter by unknown column "secret".')
+    expect(() =>
+      buildPageQuery({
+        schema: 'public',
+        relation: 'orders',
+        columns: ['id'],
+        orderBy: [],
+        filters: [{ column: 'id', operator: 'eq' }],
+        limit: 10,
+        offset: 0,
+      }),
+    ).toThrow('needs a value')
+    expect(() =>
+      buildPageQuery({
+        schema: 'public',
+        relation: 'orders',
+        columns: ['id'],
+        orderBy: [],
+        filters: [{ column: 'id', operator: 'is null', value: 1 }],
+        limit: 10,
+        offset: 0,
+      }),
+    ).toThrow('does not take a value')
+  })
+
   it('rejects a page without columns', () => {
     expect(
       messageOf(() =>

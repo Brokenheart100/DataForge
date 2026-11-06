@@ -39,6 +39,7 @@ export interface ColumnInfo {
   readonly defaultValue: string | null
   readonly isPrimaryKey: boolean
   readonly ordinal: number
+  readonly generated?: boolean
 }
 
 /**
@@ -95,6 +96,15 @@ export interface SortSpec {
   readonly direction: 'asc' | 'desc'
 }
 
+export type DriverFilterOperator = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains' | 'is null' | 'is not null'
+
+/** One server-side filter; `value` is a bound parameter, never interpolated. */
+export interface DriverFilter {
+  readonly column: string
+  readonly operator: DriverFilterOperator
+  readonly value?: CellValue
+}
+
 export interface DriverPageInput {
   readonly schema: string
   readonly relation: string
@@ -103,6 +113,8 @@ export interface DriverPageInput {
   /** Primary-key columns; used to build {@link DataRow.identity}. */
   readonly identityColumns: readonly string[]
   readonly orderBy: readonly SortSpec[]
+  /** Parameterised `where` clauses applied to both the page and its count. */
+  readonly filters?: readonly DriverFilter[]
   readonly limit: number
   readonly offset: number
   /** Ask for the row version (`xmin`); only editable heap relations have one. */

@@ -21,7 +21,10 @@ adds a MySQL adapter behind the same driver ports:
   stray `select *` cannot flood the extension host.
 - **Data editor** — open a table from the tree, edit cells, add and mark rows for
   deletion, then commit or roll back the whole batch. Paging and sorting run in
-  PostgreSQL; writes are parameterised and sent as one transaction.
+  PostgreSQL; writes are parameterised and sent as one transaction. Filters run
+  server-side, multi-column sorting survives paging, and TSV rows can be pasted
+  as pending inserts. Generated columns stay read-only, and double-clicking a
+  JSON cell opens a formatted preview.
 - **Optimistic locking** — every row carries its `xmin`; if another session
   changed it, the commit fails with the conflicting primary keys and writes
   nothing.

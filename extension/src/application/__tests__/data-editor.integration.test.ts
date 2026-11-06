@@ -82,6 +82,31 @@ suite('DataEditorService against a live server', () => {
     expect(result.rows[0]?.version).toMatch(/^\d+$/)
   })
 
+  it('filters pages and total counts on the server', async () => {
+    const filtered = await editor.loadPage({
+      connectionId,
+      schema: 'public',
+      relation: table,
+      limit: 10,
+      offset: 0,
+      orderBy: [],
+      filters: [{ column: 'label', operator: 'contains', value: 'tw' }],
+    })
+    expect(filtered.totalRows).toBe(1)
+    expect(filtered.rows[0]?.values).toEqual([2, 'two', null])
+
+    const none = await editor.loadPage({
+      connectionId,
+      schema: 'public',
+      relation: table,
+      limit: 10,
+      offset: 0,
+      orderBy: [],
+      filters: [{ column: 'note', operator: 'is null' }],
+    })
+    expect(none.totalRows).toBe(3)
+  })
+
   it('marks a view read-only', async () => {
     const result = await editor.loadPage({ connectionId, schema: 'public', relation: view, limit: 10, offset: 0, orderBy: [] })
 

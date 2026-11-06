@@ -6,6 +6,7 @@ import { DataForgeError, wrapError } from '../domain/errors'
 import { isDataEditingDriver } from './connection-service'
 import type {
   ColumnInfo,
+  DriverFilter,
   DataEditingDriver,
   DataRow,
   MutationField,
@@ -20,6 +21,7 @@ import type { Logger } from './ports'
 import type { SchemaService } from './schema-service'
 
 export interface DataPageRequest {
+  readonly filters?: readonly DriverFilter[]
   readonly connectionId: string
   /** A secondary database of the same connection; omitted means its own database. */
   readonly database?: string
@@ -136,6 +138,7 @@ export class DataEditorService {
         identityColumns: primaryKey,
         withVersion: readOnlyReason === undefined,
         orderBy: request.orderBy ?? [],
+        filters: request.filters ?? [],
         limit,
         offset,
       })

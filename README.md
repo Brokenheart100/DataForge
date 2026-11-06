@@ -9,7 +9,8 @@ Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio
 A PostgreSQL-first database IDE for VS Code with a neo-brutalist workbench.
 Phases 1–3 are complete and Phase 4 added a second driver: manage connections,
 browse schemas/tables/views/columns, run SQL, read results, edit table rows in a
-grid with transactional commit, optimistic locking and CSV export, and complete
+grid with server-side filters, multi-column sorting, paste-as-rows, transactional
+commit, optimistic locking and CSV export, and complete
 SQL through VS Code's own language services. PostgreSQL gets the full feature
 set; MySQL currently covers connections, metadata and queries. The explorer nests
 `Databases → database → schemas → tables`: extra databases open read-only, and a

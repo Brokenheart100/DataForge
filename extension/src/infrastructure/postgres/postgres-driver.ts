@@ -160,6 +160,7 @@ const COLUMN_SQL = `
     not a.attnotnull as nullable,
     pg_catalog.pg_get_expr(d.adbin, d.adrelid) as default_value,
     a.attnum as ordinal,
+    a.attgenerated <> '' as generated,
     exists (
       select 1 from pg_catalog.pg_index i
       where i.indrelid = c.oid and i.indisprimary and a.attnum = any (i.indkey)
@@ -446,6 +447,7 @@ export class PostgresDriver
       default_value: string | null
       ordinal: number
       is_primary_key: boolean
+      generated: boolean
     }>(COLUMN_SQL, [schema, relation])
 
     return result.map((row) => ({
@@ -455,6 +457,7 @@ export class PostgresDriver
       defaultValue: row.default_value,
       isPrimaryKey: row.is_primary_key,
       ordinal: row.ordinal,
+      generated: row.generated,
     }))
   }
 
@@ -560,7 +563,8 @@ ${body}
         rowMode: 'array',
       })
       const rows = result.rows.map((row) => toDataRow(row, input))
-      const total = await client.query<{ total: string }>(buildCountQuery(input.schema, input.relation).text)
+      const count = buildCountQuery(input.schema, input.relation, input.filters ?? [])
+      const total = await client.query<{ total: string }>({ text: count.text, values: [...count.values] })
       return { rows, totalRows: toCount(total.rows[0]?.total) }
     } catch (error) {
       throw mapPgError(error)
