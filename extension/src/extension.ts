@@ -111,7 +111,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logger,
     sessions,
   })
-  const tree = new ConnectionsTreeProvider(connections, schemas, logger)
+  const tree = new ConnectionsTreeProvider(connections, schemas, logger, context.extensionUri)
   const formatter = new FormatService()
   const completion = createSqlCompletionProvider({
     schemas,

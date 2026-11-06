@@ -31,11 +31,16 @@ type TreeNode =
   | { readonly kind: 'column'; readonly column: ColumnInfo }
   | { readonly kind: 'message'; readonly label: string; readonly description?: string; readonly icon?: string }
 
-function stateIcon(state: ConnectionSummary['state']): string {
-  if (state === 'connected') return 'plug'
-  if (state === 'error') return 'error'
-  return 'debug-disconnect'
-}
+type TreeIcon =
+  | 'connection'
+  | 'connection-off'
+  | 'database'
+  | 'databases'
+  | 'schema'
+  | 'table'
+  | 'view'
+  | 'key'
+  | 'column'
 
 /**
  * Lazy connections tree: nothing is loaded until a node is expanded, and
@@ -54,12 +59,18 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<TreeNode
     private readonly connections: ConnectionService,
     private readonly schemas: SchemaService,
     private readonly logger: Logger,
+    private readonly extensionUri: vscode.Uri,
   ) {
     this.disposables.push(this.connections.onDidChange(() => this.changed.fire(undefined)))
   }
 
   refresh(): void {
     this.changed.fire(undefined)
+  }
+
+  /** Comic-style SVG markers shipped in `media/icons`, one per tree concept. */
+  private icon(name: TreeIcon): vscode.Uri {
+    return vscode.Uri.joinPath(this.extensionUri, 'media', 'icons', `${name}.svg`)
   }
 
   getTreeItem(node: TreeNode): vscode.TreeItem {
@@ -81,20 +92,20 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<TreeNode
             .filter(Boolean)
             .join('\n\n'),
         )
-        item.iconPath = new vscode.ThemeIcon(stateIcon(node.summary.state))
+        item.iconPath = this.icon(node.summary.state === 'connected' ? 'connection' : 'connection-off')
         return item
       }
       case 'databases': {
         const item = new vscode.TreeItem('Databases', vscode.TreeItemCollapsibleState.Collapsed)
         item.id = `databases:${node.connectionId}`
         item.description = node.active
-        item.iconPath = new vscode.ThemeIcon('database')
+        item.iconPath = this.icon('databases')
         return item
       }
       case 'database': {
         const item = new vscode.TreeItem(node.name, vscode.TreeItemCollapsibleState.Collapsed)
         item.id = `database:${node.connectionId}:${node.name}`
-        item.iconPath = new vscode.ThemeIcon('database')
+        item.iconPath = this.icon('database')
         item.description = node.active ? 'current' : undefined
         item.tooltip = node.active
           ? `${node.name} — this connection is using it`
@@ -111,20 +122,20 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<TreeNode
       case 'schemas': {
         const item = new vscode.TreeItem('Schemas', vscode.TreeItemCollapsibleState.Collapsed)
         item.id = `schemas:${node.connectionId}:${node.database}`
-        item.iconPath = new vscode.ThemeIcon('symbol-namespace')
+        item.iconPath = this.icon('schema')
         item.description = node.active ? undefined : node.database
         return item
       }
       case 'schema': {
         const item = new vscode.TreeItem(node.name, vscode.TreeItemCollapsibleState.Collapsed)
         item.id = `schema:${node.connectionId}:${node.database}:${node.name}`
-        item.iconPath = new vscode.ThemeIcon('symbol-namespace')
+        item.iconPath = this.icon('schema')
         return item
       }
       case 'relations': {
         const item = new vscode.TreeItem(node.title, vscode.TreeItemCollapsibleState.Collapsed)
         item.id = `relations:${node.connectionId}:${node.database}:${node.schema}:${node.views ? 'views' : 'tables'}`
-        item.iconPath = new vscode.ThemeIcon(node.views ? 'eye' : 'table')
+        item.iconPath = this.icon(node.views ? 'view' : 'table')
         return item
       }
       case 'relation': {
@@ -132,7 +143,7 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<TreeNode
         item.id = `relation:${node.connectionId}:${node.database}:${node.schema}:${node.relation.name}`
         item.contextValue = 'dataforge.relation'
         item.description = node.relation.kind === 'view' ? 'view' : undefined
-        item.iconPath = new vscode.ThemeIcon(node.relation.kind === 'view' ? 'eye' : 'table')
+        item.iconPath = this.icon(node.relation.kind === 'view' ? 'view' : 'table')
         item.command = {
           command: 'dataforge.openWorkbench',
           title: 'Open query',
@@ -157,7 +168,7 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<TreeNode
         const item = new vscode.TreeItem(node.column.name, vscode.TreeItemCollapsibleState.None)
         item.description = [node.column.dataType, ...suffix].join(' · ')
         item.tooltip = `${node.column.name} ${node.column.dataType}`
-        item.iconPath = new vscode.ThemeIcon(node.column.isPrimaryKey ? 'key' : 'symbol-field')
+        item.iconPath = this.icon(node.column.isPrimaryKey ? 'key' : 'column')
         return item
       }
       case 'message': {
