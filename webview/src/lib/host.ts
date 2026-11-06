@@ -46,6 +46,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
+/**
+ * VS Code transfers messages with the structured clone algorithm, which rejects
+ * Vue reactive proxies (`DataCloneError: … could not be cloned`). Request
+ * payloads are JSON-shaped by contract, so clone them into plain data first.
+ */
+function cloneable<T>(value: T): T {
+  if (value === null || value === undefined) return value
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
 function isHostMessage(value: unknown): value is HostMessage {
   return isRecord(value) && (value.kind === 'ready' || value.kind === 'response' || value.kind === 'event')
 }
@@ -571,7 +581,7 @@ class HostBridge {
 
   private send(type: RequestType, payload: unknown, requestId?: string): string {
     const id = requestId ?? `${++this.sequence}-${Date.now().toString(36)}`
-    this.transport.post({ kind: 'request', id, type, payload })
+    this.transport.post({ kind: 'request', id, type, payload: cloneable(payload) })
     return id
   }
 
