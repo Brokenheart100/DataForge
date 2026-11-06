@@ -1,0 +1,153 @@
+{
+  "name": "dataforge",
+  "displayName": "DataForge",
+  "description": "A neo-brutalist PostgreSQL IDE for VS Code: connections, schema explorer, SQL execution and result grids.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "dataforge",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.115.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "postgres",
+    "postgresql",
+    "database",
+    "sql",
+    "ide"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dataforge",
+          "title": "DataForge",
+          "icon": "media/dataforge.svg"
+        }
+      ]
+    },
+    "views": {
+      "dataforge": [
+        {
+          "id": "dataforge.connections",
+          "name": "Connections"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "dataforge.newConnection",
+        "title": "New Connection",
+        "category": "DataForge",
+        "icon": "$(add)"
+      },
+      {
+        "command": "dataforge.refreshConnections",
+        "title": "Refresh Connections",
+        "category": "DataForge",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "dataforge.openWorkbench",
+        "title": "Open Workbench",
+        "category": "DataForge"
+      },
+      {
+        "command": "dataforge.connect",
+        "title": "Connect",
+        "category": "DataForge"
+      },
+      {
+        "command": "dataforge.disconnect",
+        "title": "Disconnect",
+        "category": "DataForge"
+      },
+      {
+        "command": "dataforge.deleteConnection",
+        "title": "Delete Connection",
+        "category": "DataForge",
+        "icon": "$(trash)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "dataforge.newConnection",
+          "when": "view == dataforge.connections",
+          "group": "navigation@1"
+        },
+        {
+          "command": "dataforge.refreshConnections",
+          "when": "view == dataforge.connections",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "dataforge.connect",
+          "when": "view == dataforge.connections && viewItem =~ /^dataforge\\.connection\\.(disconnected|error)$/",
+          "group": "inline@1"
+        },
+        {
+          "command": "dataforge.disconnect",
+          "when": "view == dataforge.connections && viewItem == dataforge.connection.connected",
+          "group": "inline@2"
+        },
+        {
+          "command": "dataforge.deleteConnection",
+          "when": "view == dataforge.connections && viewItem =~ /^dataforge\\.connection\\./",
+          "group": "inline@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "DataForge",
+      "properties": {
+        "dataforge.connectTimeoutMs": {
+          "type": "number",
+          "default": 10000,
+          "minimum": 1000,
+          "maximum": 120000,
+          "description": "Milliseconds to wait for a new PostgreSQL connection before failing."
+        },
+        "dataforge.maxRows": {
+          "type": "number",
+          "default": 500,
+          "minimum": 10,
+          "maximum": 10000,
+          "description": "Maximum number of rows returned to the webview per query result page."
+        },
+        "dataforge.statementTimeoutMs": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 0,
+          "description": "Server-side statement timeout per query (0 disables the timeout)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs --production",
+    "watch": "node esbuild.mjs --watch",
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "test:unit": "vitest run",
+    "package": "npm run build && vsce package --no-dependencies --out ../dataforge.vsix"
+  },
+  "dependencies": {
+    "pg": "^8.23.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.4",
+    "@types/pg": "^8.23.1",
+    "@types/vscode": "1.115.0",
+    "@vscode/vsce": "^4.1.0",
+    "esbuild": "^0.28.2",
+    "typescript": "~6.0.0",
+    "vitest": "^4.1.11"
+  }
+}

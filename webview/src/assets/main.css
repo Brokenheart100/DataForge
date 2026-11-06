@@ -1,0 +1,240 @@
+@import 'tailwindcss';
+
+/*
+ * DataForge design tokens.
+ *
+ * The neo-brutalist chrome (thick ink borders, hard shadows, saturated accents)
+ * is fixed branding, while every reading surface follows the VS Code theme
+ * variables. `--df-*` values flip with the active theme so the same components
+ * work in light, dark and high-contrast editors.
+ */
+:root {
+  --df-ink: #14121a;
+  --df-paper: #f4f1e9;
+  --df-surface: #ffffff;
+  --df-muted: #5f596b;
+  --df-yellow: #ffd23f;
+  --df-purple: #7c5cff;
+  --df-blue: #3f9dff;
+  --df-pink: #ff8fb1;
+  --df-mint: #5fd6a4;
+  --df-red: #ff5c5c;
+  color-scheme: light;
+}
+
+body.vscode-dark {
+  --df-ink: #f4f0e6;
+  --df-paper: #17161c;
+  --df-surface: #211f28;
+  --df-muted: #a8a2b3;
+  --df-yellow: #ffd94f;
+  --df-purple: #9b82ff;
+  --df-blue: #62b0ff;
+  --df-pink: #ff9fbd;
+  --df-mint: #6fe0b4;
+  --df-red: #ff7b7b;
+  color-scheme: dark;
+}
+
+body.vscode-high-contrast {
+  --df-ink: #ffffff;
+  --df-paper: #000000;
+  --df-surface: #0a0a0a;
+}
+
+@theme inline {
+  --color-ink: var(--df-ink);
+  --color-paper: var(--df-paper);
+  --color-surface: var(--df-surface);
+  --color-muted: var(--df-muted);
+  --color-forge-yellow: var(--df-yellow);
+  --color-forge-purple: var(--df-purple);
+  --color-forge-blue: var(--df-blue);
+  --color-forge-pink: var(--df-pink);
+  --color-forge-mint: var(--df-mint);
+  --color-forge-red: var(--df-red);
+  --shadow-brutal: 4px 4px 0 0 var(--df-ink);
+  --shadow-brutal-sm: 2px 2px 0 0 var(--df-ink);
+  --font-sans: var(--vscode-font-family, ui-sans-serif), system-ui, sans-serif;
+  --font-mono: var(--vscode-editor-font-family, ui-monospace), SFMono-Regular, Menlo, monospace;
+}
+
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--df-paper);
+    color: var(--vscode-foreground, var(--df-ink));
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  *:focus-visible {
+    outline: 2px solid var(--vscode-focusBorder, var(--df-purple));
+    outline-offset: 1px;
+  }
+
+  ::selection {
+    background: var(--df-yellow);
+    color: #14121a;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--df-ink) 28%, transparent);
+    border: 2px solid var(--df-paper);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--df-ink) 48%, transparent);
+  }
+}
+
+@layer components {
+  .df-panel {
+    border: 2px solid var(--df-ink);
+    background: var(--df-surface);
+    box-shadow: 4px 4px 0 0 var(--df-ink);
+  }
+
+  .df-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.75rem;
+    border: 2px solid var(--df-ink);
+    background: var(--df-surface);
+    color: var(--vscode-foreground, var(--df-ink));
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    cursor: pointer;
+    box-shadow: 2px 2px 0 0 var(--df-ink);
+    transition:
+      transform 80ms ease,
+      box-shadow 80ms ease,
+      background-color 80ms ease;
+  }
+
+  .df-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--df-yellow) 38%, var(--df-surface));
+  }
+
+  .df-btn:active:not(:disabled) {
+    transform: translate(2px, 2px);
+    box-shadow: none;
+  }
+
+  .df-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+    box-shadow: none;
+  }
+
+  .df-btn-primary {
+    background: var(--df-yellow);
+    color: #14121a;
+  }
+
+  .df-btn-primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--df-yellow) 80%, #ffffff);
+  }
+
+  .df-btn-danger {
+    background: var(--df-red);
+    color: #14121a;
+  }
+
+  .df-btn-ghost {
+    border-color: transparent;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .df-btn-ghost:hover:not(:disabled) {
+    border-color: var(--df-ink);
+    background: color-mix(in srgb, var(--df-ink) 8%, transparent);
+  }
+
+  .df-input {
+    width: 100%;
+    padding: 0.3rem 0.5rem;
+    border: 2px solid var(--df-ink);
+    background: var(--vscode-input-background, var(--df-surface));
+    color: var(--vscode-input-foreground, var(--vscode-foreground, var(--df-ink)));
+    font-family: inherit;
+    font-size: 12px;
+  }
+
+  .df-input::placeholder {
+    color: var(--vscode-input-placeholderForeground, var(--df-muted));
+  }
+
+  .df-input:focus {
+    outline: none;
+    box-shadow: 2px 2px 0 0 var(--df-ink);
+  }
+
+  .df-label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--df-muted);
+  }
+
+  .df-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.05rem 0.4rem;
+    border: 1.5px solid var(--df-ink);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .df-code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    tab-size: 2;
+  }
+
+  /* The SQL buffer follows the editor colours inside VS Code and falls back to
+     paper tones when the workbench is previewed in a plain browser. */
+  .df-editor {
+    background: var(--vscode-editor-background, color-mix(in srgb, var(--df-paper) 55%, white));
+    color: var(--vscode-editor-foreground, var(--df-ink));
+    caret-color: var(--df-ink);
+  }
+
+  .df-editor::selection {
+    background: color-mix(in srgb, var(--df-purple) 32%, transparent);
+  }
+
+  .df-divider {
+    border-top: 2px solid var(--df-ink);
+  }
+}
