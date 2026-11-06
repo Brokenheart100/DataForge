@@ -1,147 +1,95 @@
-# DataForge 依赖
+# DataForge 依赖规划（DataGrip 对齐版）
 
-> 版本取自当前 `package.json`（2026-11）。`^` 表示允许次版本升级，`~` 只允许补丁升级；所有依赖都已安装并验证可构建。
+本文记录运行时基线、现有依赖、为 DataGrip 对齐**计划引入**的依赖及其取舍。
+版本数字以仓库 `package.json` 为准；计划项在真正安装前不写入依赖表。
 
-## 1. 运行时约束
+## 1. 运行时基线
 
 | 项 | 要求 | 说明 |
 | --- | --- | --- |
-| Node.js | `^22.18.0 \|\| >=24.12.0` | 根 `package.json` 的 `engines`；本机实测 v24.21.0 |
-| npm | 11.x | 需要 workspaces；npm 11 默认阻止 install scripts，见第 7 节 |
-| VS Code | `^1.115.0` | `extension/package.json` 的 `engines.vscode`；本机 1.145.0 可用 |
-| PostgreSQL | 12+（实测 17） | 用到 `pg_terminate_backend`、`relkind`、`format_type` 等稳定接口 |
+| Node.js | `^22.18.0 \|\| >=24.12.0` | 与 VS Code 1.115+ 内置 Node 对齐 |
+| npm | 11+（workspaces） | 根目录统一安装，npm 11 默认阻止 install script |
+| VS Code | `^1.115.0` | `@types/vscode` 固定同版本 |
+| PostgreSQL | 12+ | 18 已实测 |
+| MySQL | 8.0+（MariaDB 兼容） | 8.4 已实测 |
+| SSH（规划） | OpenSSH 兼容服务端 | 仅端口转发，不做 SFTP |
 
-## 2. Extension Host
+## 2. 现有依赖
 
-### 2.1 运行时依赖（会打进 `dist/extension.js`）
+### extension（运行时）
 
-| 包 | 版本 | 用途 | 位置 |
+| 包 | 版本 | 用途 |
+| --- | --- | --- |
+| `pg` | ^8.23.1 | PostgreSQL 驱动 |
+| `pg-cursor` | ^2.22.1 | 流式导出（无内置类型，仓库自带 `src/types/pg-cursor.d.ts`） |
+| `mysql2` | ^3.24.6 | MySQL 驱动（纯 JS，promise API） |
+| `zod` | ^4.6.7 | 协议与持久化校验 |
+| `sql-formatter` | ^15.9.0 | SQL 格式化（宿主执行，避免 Webview 引入解析器） |
+
+### extension（开发）
+
+`typescript ~6.0.0`、`esbuild ^0.28.2`、`@types/vscode`（与 `engines.vscode` 同版本）、
+`@types/pg`、`@types/node`、`vitest ^4.1.11`、`@vscode/vsce ^4.1.0`。
+
+### webview
+
+运行时：`vue ^3.5.42`、`pinia ^4.0.3`、`ag-grid-community`/`ag-grid-vue3 36.3.0`、
+`lucide-vue-next ^1.0.0`。
+开发：`vite ^8.2.2`、`@tailwindcss/vite`、`tailwindcss ^4.3.4`、`vue-tsc`、`jsdom`、
+`vitest`、`playwright`、`npm-run-all2`。
+
+### 根
+
+`oxlint`、`eslint ^10`、`eslint-plugin-vue`/`oxlint`/`vitest`/`playwright`、
+`typescript`、`jiti`（eslint 配置 TS 入口）。
+
+## 3. 计划引入
+
+| 包 | 目标版本 | 用于 | 选择理由 / 风险 |
 | --- | --- | --- | --- |
-| `pg` | `^8.23.1` | PostgreSQL 连接池与查询；`rowMode: 'array'` 保证列顺序稳定 | `extension/package.json` |
-| `pg-cursor` | `^2.22.1` | CSV 导出的服务端游标；CommonJS、无自带类型，仓库内有 `src/types/pg-cursor.d.ts` 最小声明 | 同上 |
-| `sql-formatter` | `^15.9.0` | Phase 3 格式化；只在宿主侧调用（`language: 'postgresql'`），格式化结果通过 `WorkspaceEdit` 回填 | 同上 |
-| `zod` | `^4.6.7` | 校验 webview 消息与 `globalState` 中的持久化数据 | 同上 |
+| `ssh2` | ^1.16 | SSH 隧道（G 阶段） | 纯 JS 可用；可选原生 `cpu-features` 构建失败不影响使用。替代方案：调用系统 `ssh` 子进程（不支持密钥管理、跨平台差） |
+| `@types/ssh2` | ^1.15 | 同上 | DefinitelyTyped 维护 |
+| `csv-parse` | ^6 | 导入解析（E 阶段） | 流式、容错、可处理引号/换行；不引入完整 ETL |
 
-`pg-native` 在 esbuild 中标记为 external，未安装，走纯 JS 实现。
+新增依赖的唯一目的是**新能力**，且必须满足：纯 JS 可打包、无运行期二进制依赖、
+许可证 MIT/Apache-2.0、维护活跃。
 
-### 2.2 开发依赖
-
-| 包 | 版本 | 用途 |
-| --- | --- | --- |
-| `typescript` | `~6.0.0` | 类型检查（`tsc --noEmit`）；TS 6 已弃用 `baseUrl`，故 `paths` 用相对路径 |
-| `esbuild` | `^0.28.2` | 打包为 CommonJS、target node22、外部化 `vscode` |
-| `@types/node` | `^24.13.4` | Node 类型 |
-| `@types/vscode` | `1.115.0`（**精确版本**） | 与 `engines.vscode` 对齐；升级 API 用最低支持版本，避免用上旧版 VS Code 不存在的接口 |
-| `@types/pg` | `^8.23.1` | `pg` 类型 |
-| `vitest` | `^4.1.11` | 宿主单测与集成测试（`vitest.config.mts` 把 `vscode` 别名指向 mock） |
-| `@vscode/vsce` | `^4.1.0` | 生成 VSIX；`--no-dependencies` 因为已 bundle |
-
-## 3. Webview
-
-### 3.1 运行时依赖（会进 Vite 产物）
-
-| 包 | 版本 | 用途 |
-| --- | --- | --- |
-| `vue` | `^3.5.42` | 视图层，全部 SFC 使用 `<script setup lang="ts">` |
-| `pinia` | `^4.0.3` | 单一 store（`useWorkbenchStore`），不引入额外状态库 |
-| `tailwindcss` | `^4.3.4` | 样式引擎；设计令牌写在 `src/assets/main.css` 的 `@theme` |
-| `@tailwindcss/vite` | `^4.3.4` | Tailwind v4 的 Vite 插件（无 PostCSS 配置） |
-| `lucide-vue-next` | `^1.0.0` | 图标；只用命名导出，已核对存在性 |
-| `ag-grid-community` / `ag-grid-vue3` | `36.3.0` | Phase 2 数据网格；只用 Community 能力（编辑、排序、客户端分页靠 SQL 的 limit/offset），Theming API `themeQuartz.withParams` 贴合令牌 |
-
-> 备注：`tailwindcss` 与 `@tailwindcss/vite` 只需参与构建，放在 `dependencies` 不影响产物（Vite 会把 CSS 抽成静态文件），后续可迁到 `devDependencies` 以明确语义。
-
-### 3.2 开发依赖
-
-| 包 | 版本 | 用途 |
-| --- | --- | --- |
-| `vite` | `^8.2.2` | 构建；输出目录直接指向 `../extension/dist/webview` |
-| `@vitejs/plugin-vue` | `^6.0.8` | SFC 编译 |
-| `vue-tsc` | `^3.3.11` | `.vue` 类型检查（`vue-tsc --build`） |
-| `vitest` | `^4.1.11` | webview 单测（`jsdom` 环境） |
-| `jsdom` / `@types/jsdom` | `^30.0.1` / `^30.0.0` | 浏览器环境模拟 |
-| `@vue/test-utils` | `^2.5.0` | 组件测试预留，当前未使用 |
-| `@playwright/test` | `^1.63.0` | e2e 预留（脚手架用例尚未替换） |
-| `npm-run-all2` | `^9.0.3` | `build` 并行跑 `type-check` + `vite build` |
-| `@vue/tsconfig` / `@tsconfig/node24` | `^0.9.1` / `^24.0.5` | tsconfig 基线 |
-| `vite-plugin-vue-devtools` | `^8.2.1` | 已从 `vite.config.ts` 移除，属未使用依赖，可删 |
-
-## 4. 根工作区工具链
-
-根依赖只服务于「跨两个 workspace 的静态检查」，不参与运行：
-
-| 包 | 版本 | 用途 |
-| --- | --- | --- |
-| `typescript` | `~6.0.0` | 两个 workspace 共用 |
-| `oxlint` / `eslint` | `~1.82.0` / `^10.10.0` | 双 linter：oxlint 先跑（快），ESLint 补类型感知与 Vue 规则 |
-| `eslint-plugin-oxlint` | `~1.82.0` | 关掉与 oxlint 重叠的规则，避免互相打架 |
-| `eslint-plugin-vue` | `~10.11.0` | `flat/essential` + 推荐规则 |
-| `@vue/eslint-config-typescript` | `^14.9.0` | Vue + TS 的解析器与规则 |
-| `vue-eslint-parser` | `^10.4.1` | `.vue` 解析 |
-| `eslint-plugin-playwright` | `^2.12.0` | 仅作用于 `webview/e2e/**` |
-| `@vitest/eslint-plugin` | `^1.6.27` | 仅作用于 `**/__tests__/*` |
-| `jiti` | `^2.7.0` | 让 ESLint 能直接加载 `eslint.config.ts` |
-
-## 5. 版本策略
-
-- **`@types/vscode` 固定精确版本**：它必须等于 `engines.vscode` 的下限，否则会写出运行时不存在的新 API。升级时两处一起改，并在真机验证。
-- **TypeScript 6**：脚手架指定 `~6.0.0`。它移除了 `baseUrl`，因此 `extension/tsconfig.json` 只用 `paths` 的相对映射（`@shared/* → ../shared/*`）。
-- **Zod 4**：`z.enum(REQUEST_TYPES)`、`.trim()`、`.partial()`、issue `path` 均按 v4 行为实现。
-- **不新增依赖的默认立场**：能用 VS Code 内置能力（`SecretStorage`、`OutputChannel`、`TreeView`、语言 API）就不引入库；UI 库调研见下节。
-
-## 6. 选型记录
-
-### UI 库：全部不采用，用 Tailwind v4 令牌自建
+## 4. 评估后不引入
 
 | 候选 | 结论 |
 | --- | --- |
-| `brutxui` | npm 404，不存在 |
-| `brutx-ui@0.3.0` | 实为 **React** 组件库（peer 依赖 react / radix），Vue 不可用 |
-| `neobrutalism-vue@1.0.0` | 单人维护，无 Tailwind/生态证据，不承担组件库级别的风险 |
-| `daisyUI` | 维护良好，但等于引入第二套组件样式，与「新粗野主义 + 少量令牌」目标重复 |
+| `libpg-query` / `pg-query-parser` | 原生绑定，无法在扩展内稳定分发；SQL 校验改用“只读语句 + EXPLAIN 预检 + 服务端报错” |
+| `node-sql-parser` | 对 PostgreSQL/MySQL 方言覆盖不足，误判成本高于收益 |
+| `better-sqlite3` / `node:sqlite` | 原生/实验级依赖；SQLite 支持推迟到 D7 再评估（可用 `sql.js` WASM） |
+| `monaco-editor` | 与 VS Code 编辑器重复；违反“不重写编辑器”约束 |
+| ORM / 查询构建器（Prisma、Knex 等） | 隐藏 SQL、难以做方言差异与流式控制 |
+| `tarn`/连接池库 | `pg`/`mysql2` 自带 pool，够用 |
 
-结论：新粗野主义的外观（2px 墨色描边、4px 硬阴影、黄/紫主色）本质上就是十几个 CSS 变量 + 四个组件类，写在 `webview/src/assets/main.css` 里，约 50 行，且天然适配 VS Code 明暗主题。
+## 5. 版本与安装策略
 
-### 数据网格：AG Grid Community（Phase 2 已引入）
+- 统一在根目录 `npm install`，禁止在子包内单独提交 lockfile。
+- npm 11 默认阻止 install script：需要 `npm install-scripts approve esbuild`、
+  `approve @vscode/vsce-sign`，随后 `npm rebuild esbuild`；CI 通过根 `package.json`
+  的 `allowScripts` 白名单恢复。
+- 工作区包改名/改版本后必须 `npm install --package-lock-only`，否则 `npm ci` 失败
+  （0.1.2 已踩过）。
+- 引擎要求写入 `engines`，不满足时安装阶段即失败，避免运行期才发现。
+- 每季度执行 `npm audit --omit=dev` 与 `npm outdated`，高危项优先升级驱动与 `zod`。
 
-Phase 1 的只读结果继续用自写的轻量表格（前端按 200 行分页渲染）；Phase 2 的编辑网格用 AG Grid Community 36.3.0（`ag-grid-community` + `ag-grid-vue3`）：
+## 6. 体积与性能预算
 
-- 需要 `ModuleRegistry.registerModules([AllCommunityModule])`；主题用 `themeQuartz.withParams(...)` 而不是手写 `--ag-*` 变量。
-- **服务端行模型（SSRM）属 Enterprise**，因此分页靠 SQL `limit/offset` + `count(*)` 自己做，排序通过 `onSortChanged` 回传宿主执行 `order by`。
-- AG Grid 会测量容器高度：组件根必须处于有确定高度的 flex 链上（`.df-grid { display:flex; flex-direction:column }`、`.df-grid-ag { flex:1; min-height:0 }`、`.ag-root-wrapper { height:100% }`），否则根节点量到 2px，表格"存在但不渲染"。
-- 代价：webview 产物从约 100 KB 增到约 1.33 MB（gzip 380 KB），尚未做代码分割。
-
-### 其他候选（已验证存在，暂不引入）
-
-| 包 | 版本 | 计划 |
+| 产物 | 预算 | 现状（0.1.3） |
 | --- | --- | --- |
-| `sql-formatter` | 15.9.0 | Phase 3「格式化 SQL」，在宿主侧执行后回填编辑器 |
-| `pg-cursor` | 2.22.1 | Phase 2 CSV 导出，宿主侧流式读取，避免整表进内存 |
-| `@vscode/test-cli` / `@vscode/test-electron` | 0.0.15 / 3.1.0 | 真正需要「在 VS Code 内跑集成测试」时再接入；当前用 mock 覆盖激活路径 |
+| `extension/dist/extension.js` | ≤5 MB | ~1.9 MB（含 pg + mysql2） |
+| Webview `index.js` | ≤1.5 MB（gzip ≤400 KB） | ~1.28 MB（AG Grid 占大头） |
+| `dataforge.vsix` | ≤2 MB | ~975 KB |
 
-## 7. 安装与构建注意
+超标处理顺序：按驱动懒加载 → Webview 路由级 code split → AG Grid 独立 chunk →
+剔除未用模块。新增依赖前先估算打包增量。
 
-1. **npm 11 默认不跑 install scripts**。首次 `npm install` 后会提示 `esbuild`、`@vscode/vsce-sign` 未执行脚本；必须：
-   ```bash
-   npm install-scripts approve esbuild
-   npm install-scripts approve @vscode/vsce-sign
-   npm rebuild esbuild
-   node -e "console.log(require('esbuild').version)"   # 0.28.2
-   ```
-   否则 esbuild 二进制缺失，构建报错。根 `package.json` 已记录 `allowScripts`，重装后仍可能需要重新执行。
-2. **workspaces 提升**：`node_modules` 在根目录，`extension/` 与 `webview/` 内只见软链。`vsce package --no-dependencies` 依赖 bundle 产物，不读取 workspace 的远端依赖。
-3. **esbuild 是扩展的打包器，不是 VS Code 的**：`vscode` 被声明为 external，运行时由宿主注入。
-4. **Vite dev server 只监听 IPv6 `localhost`**：浏览器访问用 `http://localhost:5174`，`127.0.0.1:5174` 会连接失败。
-5. **Vite 产物文件名固定**：`assets/index.js` / `assets/index.css`，因为 HTML 由宿主生成（见架构文档）。改动 `vite.config.ts` 的 `rollupOptions.output` 时必须同步 `workbench-panel.ts`。
-6. **Windows 文件锁**：dev server 运行中修改 `main.css` 可能触发 `ReplaceFileW EIO`；先停 server 再改。
+## 7. 安全与供应链
 
-## 8. 待清理与风险
-
-| 项 | 状态 | 建议 |
-| --- | --- | --- |
-| `vite-plugin-vue-devtools` | 已在配置中移除，依赖仍在 | 删除，减少安装体积 |
-| `tailwindcss` / `@tailwindcss/vite` 位置 | 在 `dependencies` | 迁到 `devDependencies`（只参与构建） |
-| `@vue/test-utils`、Playwright | 已安装未使用 | 保留到 Phase 2 组件测试/真正的 e2e |
-| `npm audit` | 安装时报 “5 moderate severity vulnerabilities” | 未审计；多为 dev 工具链传递依赖，发布前跑一次 `npm audit --omit=dev` 确认生产依赖干净 |
-| `@types/vscode` 升级 | 固定 1.115.0 | 每次随 `engines.vscode` 一起升，避免用新 API 掉兼容 |
-| 发布元数据 | `publisher: "dataforge"` 为占位 | 发布前改真实 publisher，补 `repository` / `icon` / `categories` |
+- 密码/私钥/口令一律 SecretStorage；日志统一经 `redactSecrets`。
+- 只从 npm 官方源安装；锁文件提交；CI 用 `npm ci --ignore-scripts` 之外的受控白名单。
+- 新依赖需检查：最近发布、周下载量、是否含 postinstall 脚本、许可协议。
+- SSH 隧道仅绑定 `127.0.0.1`，断开连接即关闭；不在日志中输出主机密钥内容。
