@@ -32,6 +32,8 @@
 
 - Webview requests no longer fail with `DataCloneError` when they contain Vue
   reactive arrays (filters, sorting, pending changes, import mappings).
+- MySQL column metadata reports primary-key and generated flags in the right
+  order, so editable tables are identified correctly.
 - Read-only data pages now explain why they cannot be edited.
 - PostgreSQL, MySQL and SQL Server grouping, database switching and secondary
   database browsing are available from the nested explorer.

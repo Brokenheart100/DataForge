@@ -81,7 +81,7 @@ const COLUMN_SQL = `
     c.is_nullable = 'YES' as nullable,
     c.column_default as default_value,
     c.ordinal_position as ordinal,
-    c.extra like '%GENERATED%' as generated,
+    c.extra like '%GENERATED%' as is_generated,
     exists (
       select 1
       from information_schema.table_constraints tc
@@ -293,8 +293,8 @@ export class MySqlDriver implements DatabaseDriver, ObjectCatalogDriver, Session
       nullable: Number(row[2] ?? 0) === 1,
       defaultValue: row[3] === null || row[3] === undefined ? null : String(row[3]),
       ordinal: Number(row[4] ?? 0),
-      isPrimaryKey: Number(row[5] ?? 0) === 1,
-      generated: Number(row[6] ?? 0) === 1,
+      generated: Number(row[5] ?? 0) === 1,
+      isPrimaryKey: Number(row[6] ?? 0) === 1,
     }))
   }
 
