@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { AlertTriangle, Database, Gauge, Loader2, Plug, Play, Plus, RefreshCw, Square, Table2, Unplug, Users, Zap } from 'lucide-vue-next'
+import {
+  AlertTriangle, Database, Gauge, Loader2, Monitor, Moon, Plug, Play, Plus, RefreshCw, Square, Sun, Table2, Unplug,
+  Users, Zap,
+} from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import type { ConnectionSummary, WorkbenchStateDto } from '@shared/protocol'
@@ -15,6 +18,7 @@ import PlanTree from '@/components/PlanTree.vue'
 import ResultTable from '@/components/ResultTable.vue'
 import SessionPanel from '@/components/SessionPanel.vue'
 import { host } from '@/lib/host'
+import { THEME_LABELS, applyTheme, nextTheme, readTheme, saveTheme } from '@/lib/theme'
 import { useDataEditorStore } from '@/stores/data-editor'
 import { useSessionsStore } from '@/stores/sessions'
 import { useWorkbenchStore } from '@/stores/workbench'
@@ -28,6 +32,8 @@ const editing = ref<ConnectionSummary>()
 const pendingDelete = ref<string>()
 const editor = ref<HTMLTextAreaElement>()
 const view = ref<'sql' | 'data'>('sql')
+const theme = ref(readTheme())
+const themeIcon = computed(() => (theme.value === 'light' ? Sun : theme.value === 'dark' ? Moon : Monitor))
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 let stopSessionWatch: (() => void) | undefined
 
@@ -199,6 +205,12 @@ function openSessions(): void {
   sessionStore.show(connectionId, store.scopedDatabase ?? undefined)
 }
 
+function cycleTheme(): void {
+  theme.value = nextTheme(theme.value)
+  applyTheme(theme.value)
+  saveTheme(theme.value)
+}
+
 async function toggleConnection(connection: ConnectionSummary): Promise<void> {
   try {
     if (connection.state === 'connected') await store.disconnect(connection.id)
@@ -247,6 +259,12 @@ const stateChip = (connection: ConnectionSummary): string => {
       <span class="df-chip bg-white text-[#14121a]">PostgreSQL</span>
       <div class="ml-auto flex items-center gap-2">
         <span class="text-[11px] font-semibold">{{ store.connectedCount }} connected</span>
+        <button class="df-btn px-2 py-1" type="button"
+          :title="`Theme: ${THEME_LABELS[theme]} (click to change)`" :aria-label="`Theme: ${THEME_LABELS[theme]}`"
+          @click="cycleTheme">
+          <component :is="themeIcon" :size="12" />
+          {{ THEME_LABELS[theme] }}
+        </button>
         <button class="df-btn px-2 py-1" type="button" title="Refresh connections" @click="store.refresh()">
           <RefreshCw :size="12" />
           Refresh

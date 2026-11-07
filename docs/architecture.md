@@ -2,7 +2,7 @@
 
 目标：在 VS Code 内提供与 DataGrip 等价的核心工作流——多数据源、按库作用域浏览、
 多控制台、对象与结构管理、导入导出、事务与运维视图。本文描述**目标架构**以及
-从 0.1.3 演进到它的路径；能力矩阵与阶段划分见 [datagrip-parity.md](datagrip-parity.md)。
+从 0.1.4 演进到它的路径；能力矩阵与阶段划分见 [datagrip-parity.md](datagrip-parity.md)。
 
 ## 1. 边界与约束
 
@@ -16,7 +16,7 @@
   ORM、查询 DSL 或通用 SQL 解析器。
 - 安全默认：密码进 SecretStorage，写操作参数化，标识符统一引用，危险操作二次确认。
 
-## 2. 当前状态（0.1.4 开发中）
+## 2. 当前状态（0.1.4）
 
 已交付：连接管理（PostgreSQL/MySQL/只读 SQL Server、SSH 隧道、能力矩阵）、资源树
 （连接 → Databases → 库 → Schemas → 表/视图 → 列）、按库作用域浏览（副库只读）、
@@ -62,6 +62,7 @@ MySQL 的数据编辑/导出/事务/结构变更未开启；SQL Server 只读；
 | `SessionMonitor` | `application/session-monitor.ts` | 会话列表、长事务标记、终止后端（PG `pg_terminate_backend`，MySQL `KILL`）；只允许终止当前角色会话（已交付） |
 | `Tunnel` | `infrastructure/ssh/tunnel.ts` | SSH 本地端口转发，供驱动连 `127.0.0.1:<port>`（已交付） |
 | `WorkbenchStateStore` | `infrastructure/persistence/workbench-state-store.ts` | 工作台会话快照：Zod 校验后写入 `globalState`，重载后恢复标签/SQL/数据页（已交付） |
+| `ThemeMode` | `webview/src/lib/theme.ts` | `system/light/dark` 三态主题：`data-df-theme` 覆盖 VS Code 的 `vscode-dark` 类，选择存 `localStorage`（已交付） |
 
 驱动端口保持小而稳：`DatabaseDriver`（查询/元数据）＋ 可选能力
 `DataEditingDriver`、`TableExportDriver`、`TransactionalDriver`、`DdlDriver`（提供
@@ -139,7 +140,7 @@ MySQL 读 `information_schema.processlist` 并以 `KILL CONNECTION` 终止。服
 返回格式化文本与 `ExplainPlanNodeDto` 树（节点类型、关系/索引、代价、行数、实际耗时），
 `PlanTree.vue` 递归展示；慢查询命令按历史耗时取前 50 条并复用历史跳转逻辑。
 
-工作台恢复（0.1.4 开发中）：`workbench.load`/`workbench.save` 只传标签标题、SQL、活动连接、
+工作台恢复（0.1.4）：`workbench.load`/`workbench.save` 只传标签标题、SQL、活动连接、
 视图与数据页筛选/排序/页码，由 `MementoWorkbenchStateStore` 校验后存 `globalState`
 （`dataforge.workbench.v1`）。Webview 初始化先取快照，重建控制台（宿主 console id 懒创建）
 再恢复数据页并重新分页；连接处于断开状态时保留数据页状态，重连后自动补载。保存防抖 600 ms，并在 `pagehide`/卸载时补存。面板通过

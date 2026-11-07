@@ -4,7 +4,7 @@
 能力矩阵与差异清单见 [datagrip-parity.md](datagrip-parity.md)，目标架构见
 [architecture.md](architecture.md)，依赖取舍见 [dependencies.md](dependencies.md)。
 
-## 1. 现状（0.1.4 开发中）
+## 1. 现状（0.1.4）
 
 | 已交付 | 说明 |
 | --- | --- |
@@ -182,7 +182,7 @@ PostgreSQL 实现 → 树搜索与 DDL 面板 → 测试。
 - [x] 执行计划可视化（JSON → 树/表）：`domain/explain.ts` 把 `EXPLAIN (FORMAT JSON)` 解析为 `ExplainPlanNodeDto`，`PlanTree.vue` 递归渲染节点、索引、代价与行数，原始 JSON 作为回退
 - [x] 慢查询入口：历史按耗时排序并跳转：命令 `dataforge.showSlowQueries` 取成功历史中耗时前 50 条，选中后替换编辑器内容或预填工作台
 
-### 11.2 会话恢复（0.1.4 开发中）
+### 11.2 会话恢复（0.1.4）
 
 目标：VS Code 重载或窗口恢复后，工作台回到关闭前的编辑状态。
 

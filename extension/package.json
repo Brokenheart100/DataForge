@@ -2,7 +2,7 @@
   "name": "dataforge-ide",
   "displayName": "DataForge IDE",
   "description": "A neo-brutalist PostgreSQL IDE for VS Code: connections, schema explorer, SQL execution and result grids.",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "publisher": "dataforge",
   "license": "MIT",

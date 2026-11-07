@@ -22,7 +22,10 @@
   color-scheme: light;
 }
 
-body.vscode-dark {
+/* `Auto` follows VS Code; the explicit light/dark attribute wins over either
+   editor theme and lets the workbench keep a readable surface in dark editors. */
+body.vscode-dark:not([data-df-theme='light']),
+body[data-df-theme='dark'] {
   --df-ink: #f4f0e6;
   --df-paper: #17161c;
   --df-surface: #211f28;
@@ -36,7 +39,21 @@ body.vscode-dark {
   color-scheme: dark;
 }
 
-body.vscode-high-contrast {
+body[data-df-theme='light'] {
+  --df-ink: #14121a;
+  --df-paper: #f4f1e9;
+  --df-surface: #ffffff;
+  --df-muted: #5f596b;
+  --df-yellow: #ffd23f;
+  --df-purple: #7c5cff;
+  --df-blue: #3f9dff;
+  --df-pink: #ff8fb1;
+  --df-mint: #5fd6a4;
+  --df-red: #ff5c5c;
+  color-scheme: light;
+}
+
+body.vscode-high-contrast:not([data-df-theme]) {
   --df-ink: #ffffff;
   --df-paper: #000000;
   --df-surface: #0a0a0a;

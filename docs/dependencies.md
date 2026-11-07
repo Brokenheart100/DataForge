@@ -83,11 +83,11 @@
 
 ## 6. 体积与性能预算
 
-| 产物 | 预算 | 现状（0.1.3） |
+| 产物 | 预算 | 现状（0.1.4） |
 | --- | --- | --- |
-| `extension/dist/extension.js` | ≤5 MB | ~1.9 MB（含 pg + mysql2） |
-| Webview `index.js` | ≤1.5 MB（gzip ≤400 KB） | ~1.28 MB（AG Grid 占大头） |
-| `dataforge.vsix` | ≤2 MB | ~975 KB |
+| `extension/dist/extension.js` | ≤5 MB | ~3.3 MB（含 pg + mysql2 + ssh2 + tedious） |
+| Webview `index.js` | ≤1.5 MB（gzip ≤400 KB） | ~1.40 MB（AG Grid 占大头） |
+| `dataforge.vsix` | ≤2 MB | ~1.36 MB |
 
 超标处理顺序：按驱动懒加载 → Webview 路由级 code split → AG Grid 独立 chunk →
 剔除未用模块。新增依赖前先估算打包增量。

@@ -75,6 +75,9 @@ adds a MySQL adapter behind the same driver ports:
   tabs, SQL, active connection and the last data view (relation, filters, sort,
   page). Results, pending edits, transactions and credentials are not restored,
   and nothing reconnects automatically.
+- **Light, dark and auto themes** — the header button cycles Auto (follow VS
+  Code), Light and Dark. An explicit choice is remembered across reloads and
+  keeps the reading surfaces readable even when the editor uses the other theme.
 - **Transactions** — `Begin transaction` opens a dedicated backend; later runs
   go through it until you commit or roll back, and the host rolls the session
   back on panel close, disconnect or deactivate.
