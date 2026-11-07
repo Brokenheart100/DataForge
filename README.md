@@ -97,7 +97,7 @@ Two GitHub Actions workflows live in `.github/workflows`:
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | [ci.yml](.github/workflows/ci.yml) | push to `main`, pull requests, manual | `verify` type-checks and builds on Node 22.x and 24.x, `lint` runs oxlint + ESLint without autofix, `test` runs Vitest against PostgreSQL 17 and MySQL 8.4 service containers, `e2e` drives the built workbench in headless Chromium with Playwright, and `package` uploads `dataforge.vsix` as an artifact. |
-| [release.yml](.github/workflows/release.yml) | `v*` tags, manual | Repeats the checks, verifies the tag matches `extension/package.json`'s version, packages the VSIX, creates or updates the GitHub release, and publishes to the Marketplace when the `VSCE_PAT` secret exists. |
+| [release.yml](.github/workflows/release.yml) | `v*` tags, manual | Repeats the checks, verifies the tag matches `extension/package.json`'s version, packages the VSIX, creates or updates the GitHub release, and publishes to the Marketplace through GitHub OIDC trusted publishing. |
 
 The integration suites run automatically: the test job exports
 `DATAFORGE_TEST_PG` and `DATAFORGE_TEST_MYSQL` pointing at its service
@@ -112,12 +112,15 @@ git tag v0.2.0
 git push origin main --tags
 ```
 
-Set the `VSCE_PAT` secret (an Azure DevOps personal access token with the
-Marketplace *Manage* scope) to let the release job publish automatically. The
+Create a [Trusted Publishing](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#publish-with-github-actions-and-trusted-publishing)
+policy in the Marketplace publisher management page: repository owner
+`Brokenheart100`, repository `DataForge`, workflow `release.yml`, environment
+left empty. The release job requests `id-token: write` and exchanges that token
+for a short-lived Marketplace session, so no `VSCE_PAT` secret is needed. The
 publisher is `dataforge` and the extension id is `dataforge.dataforge-ide`; the
 publish step uses `--skip-duplicate`, so re-running a tag whose version is
-already live is safe. Without the secret the release job still publishes the
-GitHub release and skips the Marketplace step.
+already live is safe. If the policy is missing the publish step fails, but the
+GitHub release has already been written.
 
 ## Documentation
 

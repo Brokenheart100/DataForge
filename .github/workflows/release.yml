@@ -11,6 +11,8 @@ concurrency:
 
 permissions:
   contents: write
+  # Trusted publishing exchanges this token for a short-lived Marketplace session.
+  id-token: write
 
 jobs:
   release:
@@ -99,11 +101,6 @@ jobs:
           retention-days: 30
       - name: Publish to Visual Studio Marketplace
         if: startsWith(github.ref, 'refs/tags/')
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: |
-          if [ -z "${VSCE_PAT:-}" ]; then
-            echo "VSCE_PAT is not configured — skipping marketplace publish."
-            exit 0
-          fi
-          npx @vscode/vsce publish --packagePath dataforge.vsix --pat "${VSCE_PAT}" --skip-duplicate
+        # Requires a Trusted Publishing policy for this repository and workflow
+        # on the Marketplace publisher page; no long-lived PAT is stored.
+        run: npx @vscode/vsce publish --oidc --packagePath dataforge.vsix --skip-duplicate
