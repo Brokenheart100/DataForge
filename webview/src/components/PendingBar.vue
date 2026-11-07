@@ -86,6 +86,10 @@ async function cancelCommit(): Promise<void> {
 
 <template>
   <section class="df-panel flex flex-wrap items-center gap-3 px-3 py-2">
+    <p v-if="editor.readOnlyReason" class="df-readonly-note" role="status">
+      Read-only: {{ editor.readOnlyReason }}
+    </p>
+
     <span class="df-label mb-0">Pending</span>
     <span v-if="editor.hasPending" class="df-chip bg-forge-yellow">{{ summary }}</span>
     <span v-else class="df-chip bg-surface">No changes</span>
@@ -157,3 +161,16 @@ async function cancelCommit(): Promise<void> {
 
   <ImportDialog v-if="editor.importOpen" />
 </template>
+
+<style scoped>
+.df-readonly-note {
+  margin: 0;
+  flex-basis: 100%;
+  border: 2px solid var(--df-red);
+  background: color-mix(in srgb, var(--df-red) 14%, transparent);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--df-red);
+}
+</style>
