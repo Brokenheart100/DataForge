@@ -15,7 +15,8 @@ and applies schema changes (create table, add or alter a column, index, drop)
 behind a typed confirmation, connects through an SSH tunnel, queries a read-only
 SQL Server alongside PostgreSQL and MySQL, and adds an operations view: inspect
 other sessions and terminate your own, read `EXPLAIN` plans as a tree, and jump
-to the slowest recorded queries. Drivers advertise a capability matrix, so
+to the slowest recorded queries, then reopens its tabs, SQL and last data view
+after a window reload. Drivers advertise a capability matrix, so
 unsupported actions are hidden instead of failing. SQL completion comes from
 VS Code's own language services. PostgreSQL gets the full feature set; MySQL
 covers connections, metadata and queries, and SQL Server is query-only. The

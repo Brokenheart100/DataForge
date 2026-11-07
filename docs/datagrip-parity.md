@@ -204,6 +204,28 @@ SSL 证书校验只有 `disable/require/verify-full` 三档，未做证书文件
 
 已知缺口：锁视图、阻塞链与连接诊断未做；没有 `EXPLAIN ANALYZE` 的独立入口（沿用查询结果）。
 
+### 1.10 已完成：会话恢复（0.1.4 开发中）
+
+目标：重新加载 VS Code 窗口或恢复工作台后，不必从头重新打开标签和表。
+
+实现要点：
+
+1. 快照协议：`WorkbenchStateDto` 只记录标签标题/SQL/连接、活动标签、视图与数据页
+   relation/筛选/排序/页码，不包含结果、未提交改动、事务或凭据。
+2. 宿主存储：`MementoWorkbenchStateStore` 用 Zod 校验快照并写入 `globalState`
+   （`dataforge.workbench.v1`），损坏值按“无会话”处理。
+3. Webview 恢复：初始化先发 `workbench.load`，重建控制台标签（宿主 console id 重新懒创建），
+   再按快照恢复 SQL、活动连接与数据页；数据页重新执行分页查询，断开的连接在重连后自动补载。
+4. 面板序列化：注册 `WebviewPanelSerializer` 并声明 `onWebviewPanel:dataforge.workbench`；
+   保存防抖 600 ms，`pagehide` 与组件卸载时补存。
+
+验收结果：快照往返与损坏值处理 2 个单测、路由校验 3 个单测、面板恢复/复用 2 个单测；
+浏览器 DemoTransport 验证刷新后 Data 标签、`public.orders`、筛选 `customer contains Customer 1`
+（11 行）与自定义 SQL 均恢复。
+
+已知缺口：不恢复查询结果、待提交改动和事务；不自动重连；DemoTransport 使用
+`sessionStorage`，真实扩展使用 `globalState`。
+
 ## 2. 之后的切片（按依赖排序）
 
 | 阶段 | 能力 | 关键交付 | 依赖 |
@@ -213,6 +235,7 @@ SSL 证书校验只有 `disable/require/verify-full` 三档，未做证书文件
 | D6 | 结构与变更 | 新建/修改表对话框、索引/约束编辑、预览 SQL 后执行、简单 schema diff | D3（建表/加列/改列/索引/删表与预览已落地；diff 无 UI、约束编辑待补） |
 | D7 | 数据源广度 | SQL Server（只读）、SSH 隧道与能力矩阵已落地；SQLite、SSL 证书管理待补 | D1.2 |
 | D8 | 运维体验 | 会话监视/终止、执行计划树、慢查询入口已落地；锁视图与连接诊断待补 | D2 |
+| D9 | 工作区恢复 | 重载后恢复标签、SQL、活动连接与数据页筛选/排序/页码已落地；结果/事务不恢复 | D1 |
 
 ## 3. 原则
 
@@ -230,3 +253,4 @@ SSL 证书校验只有 `disable/require/verify-full` 三档，未做证书文件
 - M7 = D3（已完成）+ D4（编辑强化），此时对日常“看数据、改数据”已接近 DataGrip。
 - M8 = D2 + D5 + D6（控制台、导入导出、结构变更）。
 - M9 = D7 + D8（多驱动与运维体验）。
+- M10 = D9（工作区恢复）。

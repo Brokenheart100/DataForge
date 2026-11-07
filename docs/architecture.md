@@ -61,6 +61,7 @@ MySQL 的数据编辑/导出/事务/结构变更未开启；SQL Server 只读；
 | `ImportService` | `application/import-service.ts` | CSV/JSON/SQL 流式导入：列映射、类型转换、错误行报告、批提交 |
 | `SessionMonitor` | `application/session-monitor.ts` | 会话列表、长事务标记、终止后端（PG `pg_terminate_backend`，MySQL `KILL`）；只允许终止当前角色会话（已交付） |
 | `Tunnel` | `infrastructure/ssh/tunnel.ts` | SSH 本地端口转发，供驱动连 `127.0.0.1:<port>`（已交付） |
+| `WorkbenchStateStore` | `infrastructure/persistence/workbench-state-store.ts` | 工作台会话快照：Zod 校验后写入 `globalState`，重载后恢复标签/SQL/数据页（已交付） |
 
 驱动端口保持小而稳：`DatabaseDriver`（查询/元数据）＋ 可选能力
 `DataEditingDriver`、`TableExportDriver`、`TransactionalDriver`、`DdlDriver`（提供
@@ -91,7 +92,7 @@ MySQL 的数据编辑/导出/事务/结构变更未开启；SQL Server 只读；
 | `presentation/console-panel.ts` | 新增 | 控制台标签与结果渲染的宿主侧协调 |
 | `webview/src/views/*` | 新增 | Console、Objects、Import、Sessions 等视图 |
 
-## 4. 协议 v8
+## 4. 协议 v9
 
 信封不变：`{kind:'request', id, type, payload}`，响应 `ok/data` 或 `error{code,message}`
 （错误可带 `conflictingKeys`）。新增请求分组：
@@ -105,10 +106,12 @@ MySQL 的数据编辑/导出/事务/结构变更未开启；SQL Server 只读；
 | ddl | `ddl.preview`、`ddl.apply`、`ddl.openInEditor`、`schema.diff`（已交付） | 结构变更预览/执行、在编辑器打开、schema 差异 |
 | import | `import.preview`、`import.start`、`import.cancel`（已交付） | 导入向导与后台任务；进度经 `import.progress` 事件推送 |
 | session | `session.list`、`session.terminate`（已交付） | 运维视图：会话列表与终止 |
+| workbench | `workbench.load`、`workbench.save`（已交付） | 工作台会话恢复：标签/SQL/活动连接/数据页筛选排序页码 |
 | data | `data.*`、`transaction.*`、`query.explain` | 现有能力，输入统一增加可选 `database`（已交付）；`data.page` 支持 `filters` 与多列 `orderBy`；`query.explain` 额外返回结构化 `root` |
 
 所有输入中的 `database` 可选（缺省=连接主库），保证 0.1.x 客户端仍可工作；
-`PROTOCOL_VERSION` 已升到 8（v7 = 驱动能力矩阵 + 可选 SSH 隧道；v8 = 会话与结构化执行计划）。
+`PROTOCOL_VERSION` 已升到 9（v7 = 驱动能力矩阵 + 可选 SSH 隧道；v8 = 会话与结构化执行计划；
+v9 = 工作台会话恢复）。
 
 作用域规则（D1.2 已落地）：资源树可按库嵌套展开，副库使用独立 pool 且**只读**；
 写请求（`query.execute` 中的 DML、`data.commit`）在副库上被服务层拒绝，并提示
@@ -135,6 +138,13 @@ MySQL 读 `information_schema.processlist` 并以 `KILL CONNECTION` 终止。服
 `confirm` 且目标会话与当前角色一致，Webview 先内联确认再发送请求。`query.explain` 同时
 返回格式化文本与 `ExplainPlanNodeDto` 树（节点类型、关系/索引、代价、行数、实际耗时），
 `PlanTree.vue` 递归展示；慢查询命令按历史耗时取前 50 条并复用历史跳转逻辑。
+
+工作台恢复（0.1.4 开发中）：`workbench.load`/`workbench.save` 只传标签标题、SQL、活动连接、
+视图与数据页筛选/排序/页码，由 `MementoWorkbenchStateStore` 校验后存 `globalState`
+（`dataforge.workbench.v1`）。Webview 初始化先取快照，重建控制台（宿主 console id 懒创建）
+再恢复数据页并重新分页；连接处于断开状态时保留数据页状态，重连后自动补载。保存防抖 600 ms，并在 `pagehide`/卸载时补存。面板通过
+`WebviewPanelSerializer` 重新接管，`activationEvents` 声明 `onWebviewPanel:dataforge.workbench`。
+结果、未提交改动、事务和凭据不进入快照，也不自动重连。
 
 ## 5. 生命周期与并发
 

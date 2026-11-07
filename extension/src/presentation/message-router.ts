@@ -27,10 +27,11 @@ import type {
   RequestType,
   ResponseError,
   WebviewResponse,
+  WorkbenchStateDto,
 } from '@shared/protocol'
 import { REQUEST_TYPES } from '@shared/protocol'
 
-import type { Logger } from '../application/ports'
+import type { Logger, WorkbenchStateStore } from '../application/ports'
 import type { ConnectionService } from '../application/connection-service'
 import type { ConsoleService } from '../application/console-service'
 import type { DdlService } from '../application/ddl-service'
@@ -309,6 +310,39 @@ const payloadSchemas: Readonly<Record<RequestType, z.ZodType>> = {
   'ddl.preview': ddlPlanSchema,
   'ddl.apply': z.object({ plan: ddlPlanSchema, confirm: z.string().max(120).optional() }),
   'ddl.openInEditor': ddlPlanSchema,
+  'workbench.load': z.null(),
+  'workbench.save': z.object({
+    activeConnectionId: z.string().min(1).max(128).optional(),
+    activeConsoleId: z.string().min(1).max(128).optional(),
+    consoles: z
+      .array(
+        z.object({
+          key: z.string().min(1).max(128),
+          title: z.string().max(120),
+          sql: z.string().max(500_000),
+          connectionId: z.string().min(1).max(128).optional(),
+        }),
+      )
+      .max(50),
+    view: z.enum(['sql', 'data']).optional(),
+    relation: z
+      .object({
+        connectionId: z.string().min(1).max(128),
+        database: z.string().min(1).max(63).optional(),
+        schema: z.string().min(1).max(63),
+        relation: z.string().min(1).max(63),
+      })
+      .optional(),
+    data: z
+      .object({
+        offset: z.number().int().min(0).max(1_000_000_000),
+        orderBy: z
+          .array(z.object({ column: z.string().min(1).max(63), direction: z.enum(['asc', 'desc']) }))
+          .max(50),
+        filters: z.array(filterSchema).max(50),
+      })
+      .optional(),
+  }),
   'workbench.ready': z.null(),
 }
 
@@ -343,6 +377,8 @@ export interface MessageRouterDeps {
   readonly openObjectDdl?: (target: ObjectTargetInput) => Promise<void>
   /** Opens generated statements as a read-only document in the editor. */
   readonly openDdlDocument?: (sql: string) => Promise<void>
+  /** Stores the last webview session; absent in unit builds and router tests. */
+  readonly workbench?: WorkbenchStateStore
 }
 
 function formatIssues(error: z.ZodError): string {
@@ -608,6 +644,11 @@ export class MessageRouter {
         }
         return null
       }
+      case 'workbench.load':
+        return this.deps.workbench ? this.deps.workbench.load() : null
+      case 'workbench.save':
+        await this.deps.workbench?.save(as<WorkbenchStateDto>(payload))
+        return null
       case 'workbench.ready':
         return null
     }

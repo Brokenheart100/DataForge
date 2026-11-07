@@ -9,7 +9,7 @@ import type { ConnectionService } from '../application/connection-service'
 import type { Logger } from '../application/ports'
 import type { MessageRouter } from './message-router'
 
-const VIEW_TYPE = 'dataforge.workbench'
+export const WORKBENCH_VIEW_TYPE = 'dataforge.workbench'
 
 interface PrefillRequest {
   sql: string
@@ -48,11 +48,29 @@ export class WorkbenchPanel implements vscode.Disposable {
       return existing
     }
 
-    const panel = vscode.window.createWebviewPanel(VIEW_TYPE, 'DataForge', vscode.ViewColumn.Active, {
+    const panel = vscode.window.createWebviewPanel(WORKBENCH_VIEW_TYPE, 'DataForge', vscode.ViewColumn.Active, {
       enableScripts: true,
       retainContextWhenHidden: true,
       localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'dist', 'webview')],
     })
+
+    const instance = new WorkbenchPanel(panel, context, deps)
+    WorkbenchPanel.current = instance
+    return instance
+  }
+
+  /**
+   * Reattaches after a window reload. VS Code hands back the same panel id and
+   * the webview re-runs its bundle; the session itself comes from globalState
+   * through the `workbench.load` request, not from the serializer state.
+   */
+  static restore(panel: vscode.WebviewPanel, context: vscode.ExtensionContext, deps: WorkbenchDeps): WorkbenchPanel {
+    const existing = WorkbenchPanel.current
+    if (existing) {
+      panel.dispose()
+      existing.panel.reveal(vscode.ViewColumn.Active)
+      return existing
+    }
 
     const instance = new WorkbenchPanel(panel, context, deps)
     WorkbenchPanel.current = instance
@@ -64,6 +82,12 @@ export class WorkbenchPanel implements vscode.Disposable {
     context: vscode.ExtensionContext,
     private readonly deps: WorkbenchDeps,
   ) {
+    // A restored panel starts with the previous panel's options; set them again
+    // so an older panel or a hand-created one still loads the bundled assets.
+    panel.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'dist', 'webview')],
+    }
     panel.webview.html = renderHtml(panel.webview, context.extensionUri)
 
     this.disposables.push(

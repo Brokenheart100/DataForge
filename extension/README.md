@@ -71,6 +71,10 @@ adds a MySQL adapter behind the same driver ports:
   you can terminate a session that belongs to your own role after confirming.
   `DataForge: Slow Queries` opens the slowest successful statements from
   history and loads the chosen one into the editor.
+- **Session restore** — after a window reload the workbench reopens its console
+  tabs, SQL, active connection and the last data view (relation, filters, sort,
+  page). Results, pending edits, transactions and credentials are not restored,
+  and nothing reconnects automatically.
 - **Transactions** — `Begin transaction` opens a dedicated backend; later runs
   go through it until you commit or roll back, and the host rolls the session
   back on panel close, disconnect or deactivate.

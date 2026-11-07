@@ -25,6 +25,7 @@ beforeEach(() => {
   state.channels.length = 0
   state.errors.length = 0
   state.commandCalls.length = 0
+  state.serializers.clear()
 })
 
 describe('extension activation', () => {
@@ -43,6 +44,7 @@ describe('extension activation', () => {
       ]),
     )
     expect(context.subscriptions.length).toBeGreaterThan(0)
+    expect(state.serializers.has('dataforge.workbench')).toBe(true)
     expect(state.channels).toContain('DataForge')
 
     expect(() => context.subscriptions.forEach((item) => item.dispose())).not.toThrow()

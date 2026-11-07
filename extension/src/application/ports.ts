@@ -1,3 +1,5 @@
+import type { WorkbenchStateDto } from '@shared/protocol'
+
 import type { ConnectionConfig, ConnectionCredentials, ConnectionProfile } from '../domain/connection'
 import type { DatabaseDriver } from '../domain/driver'
 /**
@@ -23,6 +25,15 @@ export interface SecretStore {
 export interface ConnectionStore {
   load(): Promise<ConnectionProfile[]>
   save(profiles: readonly ConnectionProfile[]): Promise<void>
+}
+
+/**
+ * Last workbench session (tabs, SQL, open data page), implemented with
+ * globalState. Results and pending edits never enter this store.
+ */
+export interface WorkbenchStateStore {
+  load(): Promise<WorkbenchStateDto | null>
+  save(state: WorkbenchStateDto): Promise<void>
 }
 
 /** Builds a driver for a fully resolved connection (profile + password). */

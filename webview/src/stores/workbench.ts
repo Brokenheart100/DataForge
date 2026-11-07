@@ -1,4 +1,4 @@
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
 import type {
@@ -12,6 +12,8 @@ import type {
   ObjectTargetInput,
   QueryResultDto,
   RelationTarget,
+  SavedConsoleDto,
+  WorkbenchStateDto,
 } from '@shared/protocol'
 
 import { HostRequestError, host } from '@/lib/host'
@@ -69,6 +71,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const ddlText = ref('')
   const ddlLoading = ref(false)
   const ddlError = ref<ErrorDto | null>(null)
+  /** Snapshot loaded from globalState, consumed by App to restore the data page. */
+  const restoredState = ref<WorkbenchStateDto | null>(null)
 
   let toastSequence = 0
   let consoleSequence = 0
@@ -210,16 +214,69 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }, 6000)
   }
 
+  function fromSavedConsole(saved: SavedConsoleDto): WorkbenchConsole {
+    const numbered = /^Console (\d+)$/.exec(saved.title)
+    if (numbered) consoleSequence = Math.max(consoleSequence, Number(numbered[1]))
+    const connectionId = saved.connectionId && connections.value.some((item) => item.id === saved.connectionId)
+      ? saved.connectionId
+      : undefined
+    return {
+      key: saved.key,
+      title: saved.title || 'Console',
+      connectionId,
+      hostId: undefined,
+      hostConnectionId: undefined,
+      sql: saved.sql,
+      result: undefined,
+      explain: undefined,
+      error: undefined,
+      running: false,
+      cancelRequestId: undefined,
+      explaining: false,
+      transactionOpen: false,
+      transactionBusy: false,
+    }
+  }
+
+  /** Rebuilds tabs from the saved snapshot; absent data falls back to one tab. */
+  function restoreSession(saved: WorkbenchStateDto | null): void {
+    if (saved && saved.consoles.length > 0) {
+      consoles.value = saved.consoles.map(fromSavedConsole)
+      const active = consoles.value.find((item) => item.key === saved.activeConsoleId) ?? consoles.value[0]
+      if (!active) return
+      activeConsoleId.value = active.key
+      const candidate = active.connectionId ?? saved.activeConnectionId
+      activeConnectionId.value = connections.value.some((item) => item.id === candidate)
+        ? candidate
+        : connections.value[0]?.id
+      return
+    }
+
+    // Sessions written by protocol v8 only kept the active connection and SQL.
+    const legacy = host.restore()
+    const candidate = saved?.activeConnectionId ?? legacy.activeConnectionId
+    activeConnectionId.value = connections.value.some((item) => item.id === candidate)
+      ? candidate
+      : connections.value[0]?.id
+    const first = makeConsole(activeConnectionId.value, legacy.sql ?? 'select 1 as ok;')
+    consoles.value = [first]
+    activeConsoleId.value = first.key
+  }
+
   async function initialize(): Promise<void> {
     if (initialized.value) return
-    const restored = host.restore()
     const payload = await host.ready()
     prefs.value = payload.prefs
     connections.value = [...payload.connections].sort(byName)
-    activeConnectionId.value = restored.activeConnectionId ?? connections.value[0]?.id
-    const first = makeConsole(activeConnectionId.value, restored.sql ?? 'select 1 as ok;')
-    consoles.value = [first]
-    activeConsoleId.value = first.key
+    let saved: WorkbenchStateDto | null = null
+    try {
+      saved = await host.request('workbench.load', null)
+    } catch {
+      // A missing or unreadable session is not fatal: start with a fresh tab.
+      saved = null
+    }
+    restoredState.value = saved
+    restoreSession(saved)
 
     host.onEvent((event) => {
       if (event.type === 'connections.changed') {
@@ -256,11 +313,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       }
     })
 
-    watch(
-      [activeConnectionId, sql],
-      () => host.persist({ activeConnectionId: activeConnectionId.value, sql: sql.value }),
-      { flush: 'post' },
-    )
     initialized.value = true
   }
 
@@ -565,6 +617,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     toasts,
     pendingRelation,
     scopedDatabase,
+    restoredState,
     ddlOpen,
     ddlTarget,
     ddlText,

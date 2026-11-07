@@ -2,7 +2,7 @@
 import { AlertTriangle, Database, Gauge, Loader2, Plug, Play, Plus, RefreshCw, Square, Table2, Unplug, Users, Zap } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
-import type { ConnectionSummary } from '@shared/protocol'
+import type { ConnectionSummary, WorkbenchStateDto } from '@shared/protocol'
 
 import type { WorkbenchConsole } from '@/stores/workbench'
 
@@ -14,6 +14,7 @@ import PendingBar from '@/components/PendingBar.vue'
 import PlanTree from '@/components/PlanTree.vue'
 import ResultTable from '@/components/ResultTable.vue'
 import SessionPanel from '@/components/SessionPanel.vue'
+import { host } from '@/lib/host'
 import { useDataEditorStore } from '@/stores/data-editor'
 import { useSessionsStore } from '@/stores/sessions'
 import { useWorkbenchStore } from '@/stores/workbench'
@@ -27,6 +28,8 @@ const editing = ref<ConnectionSummary>()
 const pendingDelete = ref<string>()
 const editor = ref<HTMLTextAreaElement>()
 const view = ref<'sql' | 'data'>('sql')
+let saveTimer: ReturnType<typeof setTimeout> | undefined
+let stopSessionWatch: (() => void) | undefined
 
 watch(
   () => store.pendingRelation,
@@ -38,6 +41,92 @@ watch(
   },
 )
 
+// A restored data page may be waiting for its connection; load it once the
+// user reconnects instead of asking them to reopen the relation.
+watch(
+  () => store.connections.find((item) => item.id === dataEditor.connectionId)?.state,
+  (state, previous) => {
+    if (state === 'connected' && previous !== 'connected' && view.value === 'data' && dataEditor.isOpen) {
+      void dataEditor.load(dataEditor.offset)
+    }
+  },
+)
+
+/** Snapshot that survives a window reload; results and pending edits are omitted. */
+function sessionState(): WorkbenchStateDto {
+  const state: WorkbenchStateDto = {
+    ...(store.activeConnectionId ? { activeConnectionId: store.activeConnectionId } : {}),
+    ...(store.activeConsoleId ? { activeConsoleId: store.activeConsoleId } : {}),
+    consoles: store.consoles.map((tab) => ({
+      key: tab.key,
+      title: tab.title,
+      sql: tab.sql,
+      ...(tab.connectionId ? { connectionId: tab.connectionId } : {}),
+    })),
+    view: view.value,
+  }
+  if (view.value === 'data' && dataEditor.isOpen && dataEditor.connectionId && dataEditor.schema && dataEditor.relation) {
+    state.relation = {
+      connectionId: dataEditor.connectionId,
+      ...(dataEditor.database ? { database: dataEditor.database } : {}),
+      schema: dataEditor.schema,
+      relation: dataEditor.relation,
+    }
+    state.data = {
+      offset: dataEditor.offset,
+      orderBy: [...dataEditor.orderBy],
+      filters: [...dataEditor.filters],
+    }
+  }
+  return state
+}
+
+function flushSession(): void {
+  if (saveTimer !== undefined) {
+    clearTimeout(saveTimer)
+    saveTimer = undefined
+  }
+  void host.request('workbench.save', sessionState()).catch(() => undefined)
+}
+
+function scheduleSessionSave(): void {
+  if (saveTimer !== undefined) clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    saveTimer = undefined
+    void host.request('workbench.save', sessionState()).catch(() => undefined)
+  }, 600)
+}
+
+async function initializeWorkbench(): Promise<void> {
+  await store.initialize()
+  const saved = store.restoredState
+  if (
+    saved?.view === 'data' &&
+    saved.relation &&
+    store.connections.some((item) => item.id === saved.relation?.connectionId)
+  ) {
+    view.value = 'data'
+    await dataEditor.restore(saved.relation, saved.data)
+  }
+  stopSessionWatch = watch(
+    [
+      () => store.consoles,
+      () => store.activeConsoleId,
+      () => store.activeConnectionId,
+      view,
+      () => dataEditor.connectionId,
+      () => dataEditor.database,
+      () => dataEditor.schema,
+      () => dataEditor.relation,
+      () => dataEditor.offset,
+      () => dataEditor.filters,
+      () => dataEditor.orderBy,
+    ],
+    scheduleSessionSave,
+    { deep: true, flush: 'post' },
+  )
+}
+
 const stateLabel = computed(() => {
   const active = store.activeConnection
   if (!active) return 'No connection selected'
@@ -45,12 +134,16 @@ const stateLabel = computed(() => {
 })
 
 onMounted(() => {
-  void store.initialize()
   window.addEventListener('keydown', onGlobalKeydown)
+  window.addEventListener('pagehide', flushSession)
+  void initializeWorkbench()
 })
 
 onBeforeUnmount(() => {
+  stopSessionWatch?.()
+  flushSession()
   window.removeEventListener('keydown', onGlobalKeydown)
+  window.removeEventListener('pagehide', flushSession)
 })
 
 function onGlobalKeydown(event: KeyboardEvent): void {

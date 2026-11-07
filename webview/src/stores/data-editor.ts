@@ -15,6 +15,8 @@ import type {
   ImportPreviewDto,
   ImportProgressEvent,
   ImportResultDto,
+  SavedDataViewDto,
+  SavedRelationDto,
 } from '@shared/protocol'
 
 import { HostRequestError, host } from '../lib/host'
@@ -189,6 +191,22 @@ export const useDataEditorStore = defineStore('data-editor', () => {
     totalRows.value = 0
     error.value = null
     conflictKeys.value = []
+  }
+
+  /** Reopens the page saved with the workbench session (filters, sort, page). */
+  async function restore(target: SavedRelationDto, view?: SavedDataViewDto): Promise<void> {
+    connectionId.value = target.connectionId
+    database.value = target.database ?? null
+    schema.value = target.schema
+    relation.value = target.relation
+    orderBy.value = view ? [...view.orderBy] : []
+    filters.value = view ? [...view.filters] : []
+    offset.value = Math.max(0, view?.offset ?? 0)
+    rows.value = []
+    conflictKeys.value = []
+    selectedRowIds.value = []
+    error.value = null
+    await load(offset.value)
   }
 
   async function gotoPage(page: number): Promise<void> {
@@ -529,6 +547,7 @@ export const useDataEditorStore = defineStore('data-editor', () => {
     pendingCounts,
     hasPending,
     open,
+    restore,
     close,
     load,
     gotoPage,

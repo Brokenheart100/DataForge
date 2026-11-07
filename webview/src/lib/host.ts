@@ -91,9 +91,29 @@ class VsCodeTransport implements Transport {
  * Code, where no extension host exists. This keeps the UI iterable in a normal
  * browser with in-memory data instead of a blank panel.
  */
+const DEMO_SESSION_KEY = 'dataforge.demo.session'
+
+function readDemoSession(): unknown {
+  try {
+    const raw = sessionStorage.getItem(DEMO_SESSION_KEY)
+    return raw ? JSON.parse(raw) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function writeDemoSession(value: unknown): void {
+  try {
+    if (value === undefined) sessionStorage.removeItem(DEMO_SESSION_KEY)
+    else sessionStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(value))
+  } catch {
+    // Storage is unavailable in sandboxed frames; the demo simply forgets.
+  }
+}
+
 class DemoTransport implements Transport {
   private listener: ((message: unknown) => void) | undefined
-  private state: unknown
+  private state: unknown = readDemoSession()
   private consoleSequence = 0
   private readonly consoles = new Map<string, { id: string; connectionId: string; database: string; title: string }>()
   private readonly connections: ConnectionDraft[] = [
@@ -118,6 +138,8 @@ class DemoTransport implements Transport {
   subscribe(listener: (message: unknown) => void): void {
     this.listener = listener
     this.emit({ kind: 'ready', payload: this.bootstrap() })
+    // A saved session already restores the table; only a fresh demo opens one.
+    if (this.state !== undefined) return
     // Give the demo a table to look at: the browser stand-in has no explorer
     // tree, so it opens `public.orders` a moment after the handshake.
     setTimeout(() => {
@@ -518,6 +540,14 @@ class DemoTransport implements Transport {
         return
       case 'data.export':
         succeed({ saved: true, path: '~/Downloads/orders.csv', rowCount: 24 })
+        return
+      case 'workbench.load':
+        succeed(this.state ?? null)
+        return
+      case 'workbench.save':
+        this.state = request.payload
+        writeDemoSession(request.payload)
+        succeed(null)
         return
       default:
         fail({ code: 'invalid_request', message: `The demo host does not implement ${request.type}.` })

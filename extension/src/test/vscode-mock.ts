@@ -105,6 +105,7 @@ export const state = {
   errors: [] as string[],
   warnings: [] as string[],
   commandCalls: [] as string[],
+  serializers: new Map<string, unknown>(),
 }
 
 export const commands = {
@@ -181,6 +182,10 @@ export const window = {
     reveal: async () => undefined,
   }),
   createWebviewPanel: () => createPanel(),
+  registerWebviewPanelSerializer: (viewType: string, serializer: unknown) => {
+    state.serializers.set(viewType, serializer)
+    return { dispose: () => state.serializers.delete(viewType) }
+  },
   showErrorMessage: async (message: string) => {
     state.errors.push(message)
     return undefined

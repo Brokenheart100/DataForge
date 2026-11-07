@@ -28,13 +28,15 @@ import { PostgresDriver } from './infrastructure/postgres/postgres-driver'
 import { SqlServerDriver } from './infrastructure/sqlserver/sqlserver-driver'
 import { MementoConnectionStore } from './infrastructure/persistence/connection-store'
 import { MementoHistoryStore } from './infrastructure/persistence/history-store'
+import { MementoWorkbenchStateStore } from './infrastructure/persistence/workbench-state-store'
 import { VsCodeSecretStore } from './infrastructure/security/secret-store'
 import { ConnectionsTreeProvider } from './presentation/connections-tree'
 import { createSqlCompletionProvider } from './presentation/completion'
 import { createQueryDiagnostics } from './presentation/diagnostics'
 import { OutputChannelLogger } from './presentation/logging'
 import { MessageRouter } from './presentation/message-router'
-import { WorkbenchPanel } from './presentation/workbench-panel'
+import { WorkbenchPanel, WORKBENCH_VIEW_TYPE } from './presentation/workbench-panel'
+import type { WorkbenchDeps } from './presentation/workbench-panel'
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const logger = new OutputChannelLogger()
@@ -88,6 +90,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const dataEditor = new DataEditorService({ connections, schemas, logger })
   const exporter = new ExportService({ connections, schemas, logger })
   let panel: WorkbenchPanel | undefined
+  const workbenchState = new MementoWorkbenchStateStore(context.globalState)
   const importer = new ImportService({
     schemas,
     dataEditor,
@@ -107,6 +110,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     exporter,
     importer,
     monitor,
+    workbench: workbenchState,
     pickExportPath: (suggestedName) => pickExportPath(suggestedName),
     logger,
     sessions,
@@ -123,13 +127,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     showCollapseAll: true,
   })
 
+  const workbenchDeps = (): WorkbenchDeps => ({
+    connections,
+    router,
+    logger,
+    onClose: () => void sessions.rollbackAll(),
+  })
+
   const openWorkbench = (argument?: unknown): WorkbenchPanel => {
-    panel = WorkbenchPanel.open(context, {
-      connections,
-      router,
-      logger,
-      onClose: () => void sessions.rollbackAll(),
-    })
+    panel = WorkbenchPanel.open(context, workbenchDeps())
     const target = tableTargetOf(argument)
     if (target) {
       const sql = `select * from ${quoteIdentifier(target.schema)}.${quoteIdentifier(target.relation)} limit 100;`
@@ -179,6 +185,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   const registrations = [
+    vscode.window.registerWebviewPanelSerializer(WORKBENCH_VIEW_TYPE, {
+      deserializeWebviewPanel: async (restored) => {
+        panel = WorkbenchPanel.restore(restored, context, workbenchDeps())
+      },
+    }),
+
     vscode.commands.registerCommand('dataforge.newConnection', () => {
       openWorkbench()
       void vscode.commands.executeCommand('dataforge.connections.focus')

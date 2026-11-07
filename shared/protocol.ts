@@ -24,8 +24,11 @@
  *
  * v8 adds the operations view: server session listing/termination and a
  * structured EXPLAIN plan tree beside the raw JSON text.
+ *
+ * v9 adds workbench session restore: the webview saves its tabs, SQL buffers
+ * and the open data page to host globalState so a window reload restores them.
  */
-export const PROTOCOL_VERSION = 8
+export const PROTOCOL_VERSION = 9
 
 export type SslMode = 'disable' | 'require' | 'verify-full'
 export type ConnectionState = 'disconnected' | 'connected' | 'error'
@@ -652,6 +655,9 @@ export interface RequestCatalogue {
   'import.cancel': { input: { targetRequestId: string }; output: null }
   /** Aborts a running `data.commit` or `data.export` by its request id. */
   'data.cancel': { input: { targetRequestId: string }; output: null }
+  'workbench.load': { input: null; output: WorkbenchStateDto | null }
+  /** Stores the session snapshot; called on an idle debounce by the webview. */
+  'workbench.save': { input: WorkbenchStateDto; output: null }
   'workbench.ready': { input: null; output: null }
 }
 
@@ -695,6 +701,8 @@ export const REQUEST_TYPES = [
   'import.start',
   'import.cancel',
   'data.cancel',
+  'workbench.load',
+  'workbench.save',
   'workbench.ready',
 ] as const satisfies readonly RequestType[]
 
@@ -732,6 +740,45 @@ export interface BootstrapPayload {
     statementTimeoutMs: number
     connectTimeoutMs: number
   }
+}
+
+/** Which pane the workbench shows for a restored session. */
+export type WorkbenchViewDto = 'sql' | 'data'
+
+/** One restored editor tab. Results and transactions are never persisted. */
+export interface SavedConsoleDto {
+  key: string
+  title: string
+  sql: string
+  connectionId?: string
+}
+
+/** Relation whose data page was open when the window was closed. */
+export interface SavedRelationDto {
+  connectionId: string
+  database?: string
+  schema: string
+  relation: string
+}
+
+/** Paging and filtering of the restored data page; pending edits are dropped. */
+export interface SavedDataViewDto {
+  offset: number
+  orderBy: DataSortDto[]
+  filters: DataFilterDto[]
+}
+
+/**
+ * Last workbench session, stored in host globalState. It contains SQL text and
+ * relation names only — no results, row data, transactions or credentials.
+ */
+export interface WorkbenchStateDto {
+  activeConnectionId?: string
+  activeConsoleId?: string
+  consoles: SavedConsoleDto[]
+  view?: WorkbenchViewDto
+  relation?: SavedRelationDto
+  data?: SavedDataViewDto
 }
 
 export interface RelationTarget {

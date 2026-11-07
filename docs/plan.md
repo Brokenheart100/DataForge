@@ -182,6 +182,19 @@ PostgreSQL 实现 → 树搜索与 DDL 面板 → 测试。
 - [x] 执行计划可视化（JSON → 树/表）：`domain/explain.ts` 把 `EXPLAIN (FORMAT JSON)` 解析为 `ExplainPlanNodeDto`，`PlanTree.vue` 递归渲染节点、索引、代价与行数，原始 JSON 作为回退
 - [x] 慢查询入口：历史按耗时排序并跳转：命令 `dataforge.showSlowQueries` 取成功历史中耗时前 50 条，选中后替换编辑器内容或预填工作台
 
+### 11.2 会话恢复（0.1.4 开发中）
+
+目标：VS Code 重载或窗口恢复后，工作台回到关闭前的编辑状态。
+
+状态：✅ 实现完成（标签、SQL、活动连接与数据页筛选/排序/页码恢复；不恢复结果、未提交改动和事务）。
+
+- [x] 协议 v9：`workbench.load` / `workbench.save` 承载 `WorkbenchStateDto`（最多 50 个标签、SQL ≤500 KB）
+- [x] 宿主持久化：`MementoWorkbenchStateStore` 用 Zod 校验快照并写入 `globalState`（`dataforge.workbench.v1`），损坏时按无会话处理
+- [x] Webview 恢复：初始化时读取快照，重建控制台标签与活动连接；数据页恢复 relation/筛选/排序/页码并重新分页，连接重连后自动重载
+- [x] 面板序列化：注册 `WebviewPanelSerializer` 并声明 `onWebviewPanel:dataforge.workbench`，防抖 600 ms 保存，`pagehide`/卸载时补存
+
+不持久化：查询结果、待提交的数据改动、事务、SSH 口令；不自动重连（恢复后需手动连接）。
+
 ## 12. 工程化待办
 
 - [x] `.gitignore` 覆盖产物与临时目录
