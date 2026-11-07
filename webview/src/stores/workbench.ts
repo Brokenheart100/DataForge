@@ -17,6 +17,7 @@ import type {
 } from '@shared/protocol'
 
 import { HostRequestError, host } from '@/lib/host'
+import { setHostLocale, t } from '@/lib/i18n'
 
 export interface Toast {
   id: number
@@ -103,7 +104,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     consoleSequence += 1
     return {
       key: crypto.randomUUID(),
-      title: `Console ${consoleSequence}`,
+      title: t('console.title', { n: consoleSequence }),
       connectionId,
       hostId: undefined,
       hostConnectionId: undefined,
@@ -137,7 +138,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     const tab = consoles.value.find((item) => item.key === key)
     if (!tab) return
     if (tab.running) {
-      pushToast('warn', 'Cancelling the running statement before closing the console.')
+      pushToast('warn', t('toast.cancelBeforeClose'))
       if (tab.cancelRequestId) {
         await host.request('query.cancel', { targetRequestId: tab.cancelRequestId }).catch(() => undefined)
       }
@@ -151,9 +152,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     if (tab.hostId) {
       const wasInTransaction = tab.transactionOpen
       await host.request('console.close', { consoleId: tab.hostId }).catch((caught: unknown) => {
-        pushToast('warn', `Could not close the console cleanly: ${describeError(caught).message}`)
+        pushToast('warn', t('toast.closeCleanly', { message: describeError(caught).message }))
       })
-      if (wasInTransaction) pushToast('warn', 'The closed console’s transaction was rolled back.')
+      if (wasInTransaction) pushToast('warn', t('toast.closedRolledBack'))
     }
   }
 
@@ -161,7 +162,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     const tab = consoles.value.find((item) => item.key === key)
     if (!tab) return
     if (transactionOpen.value && activeConsole.value?.key !== key) {
-      pushToast('warn', 'Commit or roll back the open transaction before switching consoles.')
+      pushToast('warn', t('toast.txSwitchConsole'))
       return
     }
     activate(tab)
@@ -170,7 +171,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   /** Host-side console for this tab, opened lazily and rebound after a connection switch. */
   async function ensureHostConsole(tab: WorkbenchConsole): Promise<string> {
     const connectionId = tab.connectionId ?? activeConnectionId.value
-    if (!connectionId) throw new Error('Select a connection first.')
+    if (!connectionId) throw new Error(t('error.selectConnection'))
     if (tab.hostId && tab.hostConnectionId === connectionId) return tab.hostId
     if (tab.hostId) {
       const stale = tab.hostId
@@ -186,7 +187,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   function setActiveConnection(id: string): void {
     if (transactionOpen.value && activeConsole.value?.connectionId !== id) {
-      pushToast('warn', 'Commit or roll back the open transaction before switching connections.')
+      pushToast('warn', t('toast.txSwitchConnection'))
       return
     }
     activeConnectionId.value = id
@@ -215,7 +216,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   }
 
   function fromSavedConsole(saved: SavedConsoleDto): WorkbenchConsole {
-    const numbered = /^Console (\d+)$/.exec(saved.title)
+    const numbered = /^(?:Console|控制台) (\d+)$/.exec(saved.title)
     if (numbered) consoleSequence = Math.max(consoleSequence, Number(numbered[1]))
     const connectionId = saved.connectionId && connections.value.some((item) => item.id === saved.connectionId)
       ? saved.connectionId
@@ -266,6 +267,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   async function initialize(): Promise<void> {
     if (initialized.value) return
     const payload = await host.ready()
+    setHostLocale(payload.locale)
     prefs.value = payload.prefs
     connections.value = [...payload.connections].sort(byName)
     let saved: WorkbenchStateDto | null = null
@@ -301,9 +303,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
               ? event.payload.target.database
               : null
             pendingRelation.value = event.payload.target
-            pushToast('info', `Opened ${event.payload.target.schema}.${event.payload.target.relation}.`)
+            pushToast('info', t('toast.openedRelation', { name: `${event.payload.target.schema}.${event.payload.target.relation}` }))
           } else {
-            pushToast('info', 'Loaded the selected relation into the editor.')
+            pushToast('info', t('toast.loadedRelation'))
           }
         }
       } else if (event.type === 'object.ddl') {
@@ -335,7 +337,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       activeConsole.value.hostId = undefined
       activeConsole.value.hostConnectionId = undefined
     }
-    pushToast('info', `Saved connection "${summary.name}"`)
+    pushToast('info', t('toast.savedConnection', { name: summary.name }))
     return summary
   }
 
@@ -348,7 +350,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         tab.hostConnectionId = undefined
       }
     }
-    pushToast('info', `Updated connection "${summary.name}"`)
+    pushToast('info', t('toast.updatedConnection', { name: summary.name }))
     return summary
   }
 
@@ -364,7 +366,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         tab.transactionOpen = false
       }
     }
-    pushToast('info', 'Connection deleted')
+    pushToast('info', t('toast.connectionDeleted'))
   }
 
   async function testConnection(target: ConnectionTestTarget): Promise<ConnectionTestResult> {
@@ -381,7 +383,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   async function connect(id: string): Promise<void> {
     const summary = await host.request('connection.connect', { id })
     upsert(summary)
-    pushToast('info', `Connected to ${summary.name}`)
+    pushToast('info', t('toast.connectedTo', { name: summary.name }))
   }
 
   async function disconnect(id: string): Promise<void> {
@@ -400,11 +402,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     const tab = activeConsole.value
     const connectionId = tab?.connectionId ?? activeConnectionId.value
     if (!tab || !connectionId) {
-      pushToast('warn', 'Select a connection before starting a transaction.')
+      pushToast('warn', t('toast.selectConnectionTx'))
       return
     }
     if (connections.value.find((item) => item.id === connectionId)?.state !== 'connected') {
-      pushToast('warn', 'Connect to the database before starting a transaction.')
+      pushToast('warn', t('toast.connectBeforeTx'))
       return
     }
     tab.transactionBusy = true
@@ -412,7 +414,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       const hostId = await ensureHostConsole(tab)
       await host.request('transaction.begin', { connectionId, consoleId: hostId })
       tab.transactionOpen = true
-      pushToast('info', 'Transaction started. Nothing is saved until you commit.')
+      pushToast('info', t('toast.txStarted'))
     } catch (caught) {
       const dto = describeError(caught)
       tab.error = dto
@@ -434,7 +436,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         consoleId: tab.hostId,
       })
       tab.transactionOpen = false
-      pushToast('info', kind === 'commit' ? 'Transaction committed.' : 'Transaction rolled back.')
+      pushToast('info', kind === 'commit' ? t('toast.txCommitted') : t('toast.txRolledBack'))
     } catch (caught) {
       const dto = describeError(caught)
       tab.error = dto
@@ -449,11 +451,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     if (!tab) return
     const connectionId = tab.connectionId ?? activeConnectionId.value
     if (!connectionId) {
-      tab.error = { code: 'invalid_request', message: 'Select a connection before running a query.' }
+      tab.error = { code: 'invalid_request', message: t('error.selectRun') }
       return
     }
     if (connections.value.find((item) => item.id === connectionId)?.state !== 'connected') {
-      const dto = { code: 'connection_failed' as const, message: 'Connect to the database before running a query.' }
+      const dto = { code: 'connection_failed' as const, message: t('error.connectRun') }
       tab.error = dto
       pushToast('warn', dto.message)
       return
@@ -461,7 +463,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     // Running a selection leaves the buffer untouched; the editor owns the text.
     const statement = selection && selection.trim() ? selection : tab.sql
     if (!statement.trim()) {
-      tab.error = { code: 'invalid_request', message: 'The SQL buffer is empty.' }
+      tab.error = { code: 'invalid_request', message: t('error.emptySql') }
       return
     }
 
@@ -488,7 +490,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     } catch (caught) {
       const dto = describeError(caught)
       if (dto.code === 'cancelled') {
-        pushToast('warn', 'Query cancelled.')
+        pushToast('warn', t('toast.queryCancelled'))
       } else {
         tab.error = dto
         pushToast('error', dto.message)
@@ -515,12 +517,12 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     if (!tab) return
     const connectionId = tab.connectionId ?? activeConnectionId.value
     if (!connectionId) {
-      tab.error = { code: 'invalid_request', message: 'Select a connection before explaining a query.' }
+      tab.error = { code: 'invalid_request', message: t('error.selectExplain') }
       return
     }
     const statement = selection && selection.trim() ? selection : tab.sql
     if (!statement.trim()) {
-      tab.error = { code: 'invalid_request', message: 'The SQL buffer is empty.' }
+      tab.error = { code: 'invalid_request', message: t('error.emptySql') }
       return
     }
     tab.explaining = true
@@ -575,9 +577,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   async function copyDdl(): Promise<void> {
     try {
       await navigator.clipboard.writeText(ddlText.value)
-      pushToast('info', 'DDL copied to the clipboard.')
+      pushToast('info', t('toast.ddlCopied'))
     } catch {
-      pushToast('warn', 'The clipboard is not available here.')
+      pushToast('warn', t('toast.clipboardUnavailable'))
     }
   }
 
@@ -585,7 +587,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     if (!ddlTarget.value) return
     try {
       await host.request('object.openInEditor', ddlTarget.value)
-      pushToast('info', 'DDL opened in the editor.')
+      pushToast('info', t('toast.ddlOpened'))
     } catch (caught) {
       pushToast('error', describeError(caught).message)
     }

@@ -144,6 +144,7 @@ export class WorkbenchPanel implements vscode.Disposable {
     return {
       protocolVersion: PROTOCOL_VERSION,
       connections: this.deps.connections.list(),
+      locale: vscode.env.language,
       prefs: {
         maxRows: config.get<number>('maxRows', 500),
         statementTimeoutMs: config.get<number>('statementTimeoutMs', 30_000),

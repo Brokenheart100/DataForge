@@ -5,6 +5,7 @@ import { AlertTriangle, Check, FileSpreadsheet, Loader2, Upload, X } from 'lucid
 import type { ImportFormat, ImportMappingDto } from '@shared/protocol'
 
 import { host } from '../lib/host'
+import { t } from '@/lib/i18n'
 import { useDataEditorStore } from '../stores/data-editor'
 import { useWorkbenchStore } from '../stores/workbench'
 
@@ -50,7 +51,7 @@ async function submit(): Promise<void> {
   await editor.runImport(mapping.value)
   const result = editor.importResult
   if (result && !result.cancelled) {
-    workbench.pushToast('info', `Imported ${result.imported} row(s) into ${editor.qualifiedName}.`)
+    workbench.pushToast('info', t('import.importedToast', { count: result.imported, name: editor.qualifiedName }))
   }
 }
 
@@ -74,9 +75,9 @@ function sizeLabel(bytes: number): string {
     <section class="df-panel flex max-h-full w-full max-w-3xl flex-col overflow-hidden bg-paper">
       <header class="flex items-center gap-2 border-b-2 border-ink bg-ink px-3 py-2 text-paper">
         <FileSpreadsheet class="h-4 w-4" />
-        <h2 class="text-sm font-black uppercase tracking-wide">Import data</h2>
+        <h2 class="text-sm font-black uppercase tracking-wide">{{ t('import.title') }}</h2>
         <span class="df-chip ml-1 bg-surface text-ink">{{ editor.qualifiedName }}</span>
-        <button class="df-btn df-btn-ghost ml-auto !px-2 !py-1" type="button" title="Close" @click="close">
+        <button class="df-btn df-btn-ghost ml-auto !px-2 !py-1" type="button" :title="t('common.close')" @click="close">
           <X class="h-3.5 w-3.5" />
         </button>
       </header>
@@ -84,28 +85,28 @@ function sizeLabel(bytes: number): string {
       <div class="min-h-0 flex-1 space-y-3 overflow-auto p-3">
         <div class="flex flex-wrap items-end gap-2">
           <label class="grid gap-1 text-[11px]">
-            <span class="df-label">Type</span>
+            <span class="df-label">{{ t('import.type') }}</span>
             <select v-model="format" class="df-input !w-36" :disabled="editor.importing">
               <option value="csv">CSV / TSV</option>
               <option value="json">JSON</option>
             </select>
           </label>
           <label v-if="format === 'csv'" class="grid gap-1 text-[11px]">
-            <span class="df-label">Delimiter</span>
+            <span class="df-label">{{ t('import.delimiter') }}</span>
             <select v-model="delimiter" class="df-input !w-24" :disabled="editor.importing">
-              <option value=",">comma</option>
-              <option value=";">semicolon</option>
-              <option :value="'\t'">tab</option>
+              <option value=",">{{ t('import.comma') }}</option>
+              <option value=";">{{ t('import.semicolon') }}</option>
+              <option :value="'\t'">{{ t('import.tab') }}</option>
             </select>
           </label>
           <label v-if="format === 'csv'" class="flex items-center gap-1 pb-1.5 text-[11px]">
             <input v-model="hasHeader" type="checkbox" :disabled="editor.importing" />
-            First row is a header
+            {{ t('import.header') }}
           </label>
           <button class="df-btn" type="button" :disabled="editor.importLoading || editor.importing" @click="chooseFile">
             <Loader2 v-if="editor.importLoading" class="h-3.5 w-3.5 animate-spin" />
             <Upload v-else class="h-3.5 w-3.5" />
-            Choose file
+            {{ t('import.choose') }}
           </button>
         </div>
 
@@ -141,7 +142,7 @@ function sizeLabel(bytes: number): string {
                         )
                       "
                     >
-                      <option :value="null">Ignore</option>
+                      <option :value="null">{{ t('import.ignore') }}</option>
                       <option
                         v-for="column in editor.importPreview.columns"
                         :key="column.name"
@@ -176,16 +177,15 @@ function sizeLabel(bytes: number): string {
         </div>
 
         <p v-else class="text-[11px] text-muted">
-          Pick a CSV or JSON file. Columns are matched by name; every batch of rows is written in one
-          transaction, so a failing row rolls its batch back.
+          {{ t('import.hint') }}
         </p>
 
         <div v-if="editor.importing" class="space-y-1">
           <p class="flex items-center gap-1 text-[11px] text-muted">
             <Loader2 class="h-3 w-3 animate-spin" />
-            {{ editor.importProgress?.processed ?? 0 }} row(s) read ·
-            {{ editor.importProgress?.inserted ?? 0 }} inserted ·
-            {{ editor.importProgress?.failed ?? 0 }} failed
+            {{ t('import.read', { count: editor.importProgress?.processed ?? 0 }) }} ·
+            {{ t('import.inserted', { count: editor.importProgress?.inserted ?? 0 }) }} ·
+            {{ t('import.failed', { count: editor.importProgress?.failed ?? 0 }) }}
           </p>
           <div class="h-2 overflow-hidden rounded border-2 border-ink bg-surface">
             <div class="h-full w-1/3 animate-pulse bg-forge-purple" />
@@ -194,14 +194,17 @@ function sizeLabel(bytes: number): string {
 
         <ul v-if="editor.importErrors.length > 0" class="max-h-40 space-y-1 overflow-auto text-[11px] text-forge-red">
           <li v-for="issue in editor.importErrors.slice(0, 20)" :key="`${issue.row}-${issue.message}`">
-            Row {{ issue.row }}: {{ issue.message }}
+            {{ t('import.rowError', { row: issue.row, message: issue.message }) }}
           </li>
         </ul>
 
         <p v-if="editor.importResult && !editor.importing" class="text-[11px] text-muted">
           <Check v-if="!editor.importResult.cancelled" class="mr-1 inline h-3 w-3 text-forge-mint" />
-          Imported {{ editor.importResult.imported }} row(s), failed {{ editor.importResult.failed }} ·
-          {{ editor.importResult.durationMs }} ms
+          {{ t('import.summary', {
+            imported: editor.importResult.imported,
+            failed: editor.importResult.failed,
+            ms: editor.importResult.durationMs,
+          }) }}
         </p>
       </div>
 
@@ -212,10 +215,10 @@ function sizeLabel(bytes: number): string {
           type="button"
           @click="cancel"
         >
-          Cancel import
+          {{ t('import.cancel') }}
         </button>
         <button class="df-btn df-btn-ghost ml-auto" type="button" :disabled="editor.importing" @click="close">
-          Close
+          {{ t('common.close') }}
         </button>
         <button
           class="df-btn df-btn-primary"
@@ -225,7 +228,7 @@ function sizeLabel(bytes: number): string {
         >
           <Loader2 v-if="editor.importing" class="h-3.5 w-3.5 animate-spin" />
           <Upload v-else class="h-3.5 w-3.5" />
-          Import rows
+          {{ t('import.rows') }}
         </button>
       </footer>
     </section>

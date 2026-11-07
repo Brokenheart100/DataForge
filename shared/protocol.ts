@@ -735,6 +735,8 @@ export interface ResponseError {
 export interface BootstrapPayload {
   protocolVersion: number
   connections: ConnectionSummary[]
+  /** VS Code display language, so “Auto” can follow the editor rather than the OS. */
+  locale?: string
   prefs: {
     maxRows: number
     statementTimeoutMs: number

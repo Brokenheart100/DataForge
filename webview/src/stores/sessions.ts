@@ -4,6 +4,7 @@ import { defineStore } from 'pinia'
 import type { SessionListDto } from '@shared/protocol'
 
 import { host } from '../lib/host'
+import { t } from '../lib/i18n'
 import { useWorkbenchStore } from './workbench'
 
 /**
@@ -71,7 +72,7 @@ export const useSessionsStore = defineStore('sessions', () => {
         },
         crypto.randomUUID(),
       )
-      useWorkbenchStore().pushToast('info', `Terminated session ${id}.`)
+      useWorkbenchStore().pushToast('info', t('sessions.terminated', { id }))
       confirmId.value = undefined
       await refresh()
     } catch (caught) {

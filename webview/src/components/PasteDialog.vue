@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { ClipboardPaste, X } from 'lucide-vue-next'
 
 import { useDataEditorStore } from '@/stores/data-editor'
+import { t } from '@/lib/i18n'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [value: boolean]; pasted: [count: number] }>()
@@ -37,34 +38,31 @@ function paste(): void {
       <header class="df-paste-header">
         <div class="flex items-center gap-2">
           <ClipboardPaste class="h-4 w-4 text-forge-purple" aria-hidden="true" />
-          <h2 id="paste-title" class="text-sm font-bold uppercase tracking-wide">Paste rows</h2>
+          <h2 id="paste-title" class="text-sm font-bold uppercase tracking-wide">{{ t('paste.title') }}</h2>
         </div>
-        <button class="df-btn df-btn-ghost h-7 w-7 p-0" type="button" aria-label="Close" @click="close">
+        <button class="df-btn df-btn-ghost h-7 w-7 p-0" type="button" :aria-label="t('common.close')" @click="close">
           <X class="h-4 w-4" aria-hidden="true" />
         </button>
       </header>
 
       <p class="px-3 text-[11px] leading-4 text-muted">
-        Paste tab-separated rows copied from a spreadsheet or CSV. Values fill the editable columns in order
-        (<span class="df-code">{{ columnNames.join(', ') || 'no editable columns' }}</span>); empty cells and
-        <span class="df-code">NULL</span> become null. Rows are added as pending inserts and are not saved until you
-        commit.
+        {{ t('paste.hint', { columns: columnNames.join(', ') || t('paste.noEditableColumns') }) }}
       </p>
 
       <textarea
         v-model="text"
         class="df-code df-editor df-paste-input"
         spellcheck="false"
-        aria-label="Pasted rows"
-        placeholder="Paste rows here"
+        :aria-label="t('paste.ariaRows')"
+        :placeholder="t('paste.placeholder')"
       />
 
       <footer class="df-paste-footer">
-        <span class="text-[11px] text-muted">{{ rowCount }} row(s) detected</span>
+        <span class="text-[11px] text-muted">{{ t('paste.rowsDetected', { count: rowCount }) }}</span>
         <span class="flex-1" />
-        <button class="df-btn df-btn-ghost" type="button" @click="close">Cancel</button>
+        <button class="df-btn df-btn-ghost" type="button" @click="close">{{ t('common.cancel') }}</button>
         <button class="df-btn df-btn-primary" type="button" :disabled="rowCount === 0 || !store.editable" @click="paste">
-          Add {{ rowCount }} row(s)
+          {{ t('paste.addRows', { count: rowCount }) }}
         </button>
       </footer>
     </section>

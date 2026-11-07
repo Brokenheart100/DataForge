@@ -78,6 +78,10 @@ adds a MySQL adapter behind the same driver ports:
 - **Light, dark and auto themes** — the header button cycles Auto (follow VS
   Code), Light and Dark. An explicit choice is remembered across reloads and
   keeps the reading surfaces readable even when the editor uses the other theme.
+- **Auto, English and 中文 UI** — the header language button cycles Auto (follow
+  VS Code's display language), English and Chinese. The choice is remembered;
+  workbench screens and local messages are translated, while database errors
+  stay in the server's language.
 - **Transactions** — `Begin transaction` opens a dedicated backend; later runs
   go through it until you commit or roll back, and the host rolls the session
   back on panel close, disconnect or deactivate.

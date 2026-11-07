@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Auto, English and 中文 UI** — a header language button cycles Auto (follow
+  VS Code's display language), English and Chinese, and remembers the choice.
+  Workbench screens, dialogs and local notifications are translated; messages
+  returned by the database stay as the server sent them.
+
 ## 0.1.4 — 2026-11-07
 
 ### Added

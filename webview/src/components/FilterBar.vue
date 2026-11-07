@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { ClipboardPaste, Filter, Plus, Wrench, X } from 'lucide-vue-next'
 
 import type { CellValue, DataFilterDto, DataFilterOperator } from '@shared/protocol'
+import { t, type MessageKey } from '@/lib/i18n'
 
 import { useDataEditorStore } from '@/stores/data-editor'
 import { useDdlStore } from '@/stores/ddl'
@@ -15,17 +16,25 @@ const workbench = useWorkbenchStore()
 const ddl = useDdlStore()
 const pasteOpen = ref(false)
 
-const OPERATORS: { value: DataFilterOperator; label: string }[] = [
-  { value: 'eq', label: '= equals' },
-  { value: 'neq', label: '≠ not equal' },
-  { value: 'gt', label: '> greater' },
-  { value: 'gte', label: '≥ greater or equal' },
-  { value: 'lt', label: '< less' },
-  { value: 'lte', label: '≤ less or equal' },
-  { value: 'contains', label: 'contains' },
-  { value: 'is null', label: 'is null' },
-  { value: 'is not null', label: 'is not null' },
-]
+const OPERATOR_KEYS: Record<DataFilterOperator, MessageKey> = {
+  eq: 'filter.op.eq',
+  neq: 'filter.op.neq',
+  gt: 'filter.op.gt',
+  gte: 'filter.op.gte',
+  lt: 'filter.op.lt',
+  lte: 'filter.op.lte',
+  contains: 'filter.op.contains',
+  'is null': 'filter.op.isNull',
+  'is not null': 'filter.op.isNotNull',
+}
+
+const OPERATORS = computed(() =>
+  (Object.keys(OPERATOR_KEYS) as DataFilterOperator[]).map((value) => ({ value, label: t(OPERATOR_KEYS[value]) })),
+)
+
+function operatorLabel(operator: DataFilterOperator): string {
+  return t(OPERATOR_KEYS[operator])
+}
 
 const column = ref<string>()
 const operator = ref<DataFilterOperator>('eq')
@@ -57,8 +66,8 @@ function add(): void {
 }
 
 function labelFor(filter: DataFilterDto): string {
-  const operatorLabel = OPERATORS.find((entry) => entry.value === filter.operator)?.label ?? filter.operator
-  return isNullable(filter) ? `${filter.column} ${operatorLabel}` : `${filter.column} ${operatorLabel} ${String(filter.value ?? '')}`
+  const operator = operatorLabel(filter.operator)
+  return isNullable(filter) ? `${filter.column} ${operator}` : `${filter.column} ${operator} ${String(filter.value ?? '')}`
 }
 
 function isNullable(filter: DataFilterDto): boolean {
@@ -81,26 +90,26 @@ function openSchema(): void {
     <div class="flex flex-wrap items-center gap-2">
       <span class="df-chip bg-forge-purple/15">
         <Filter class="h-3 w-3" aria-hidden="true" />
-        Filters
+        {{ t('filter.title') }}
       </span>
-      <select v-model="column" class="df-input h-7 max-w-40 py-0 text-[11px]" aria-label="Filter column">
-        <option :value="undefined" disabled>column…</option>
+      <select v-model="column" class="df-input h-7 max-w-40 py-0 text-[11px]" :aria-label="t('filter.columnAria')">
+        <option :value="undefined" disabled>{{ t('filter.columnPlaceholder') }}</option>
         <option v-for="entry in store.columns" :key="entry.name" :value="entry.name">{{ entry.name }}</option>
       </select>
-      <select v-model="operator" class="df-input h-7 max-w-44 py-0 text-[11px]" aria-label="Filter operator">
+      <select v-model="operator" class="df-input h-7 max-w-44 py-0 text-[11px]" :aria-label="t('filter.operatorAria')">
         <option v-for="entry in OPERATORS" :key="entry.value" :value="entry.value">{{ entry.label }}</option>
       </select>
       <input
         v-model="value"
         class="df-input h-7 max-w-44 py-0 text-[11px]"
         :disabled="nullable"
-        :placeholder="nullable ? 'no value' : 'value'"
-        aria-label="Filter value"
+        :placeholder="nullable ? t('filter.noValue') : t('filter.valuePlaceholder')"
+        :aria-label="t('filter.valueAria')"
         @keydown.enter.prevent="add"
       />
       <button class="df-btn df-btn-primary h-7 px-2 text-[11px]" type="button" :disabled="!canAdd" @click="add">
         <Plus class="h-3 w-3" aria-hidden="true" />
-        Add
+        {{ t('filter.add') }}
       </button>
       <button
         v-if="store.filters.length > 0"
@@ -108,7 +117,7 @@ function openSchema(): void {
         type="button"
         @click="store.clearFilters()"
       >
-        Clear
+        {{ t('filter.clear') }}
       </button>
       <span class="flex-1" />
       <button
@@ -118,17 +127,17 @@ function openSchema(): void {
         @click="pasteOpen = true"
       >
         <ClipboardPaste class="h-3 w-3" aria-hidden="true" />
-        Paste rows
+        {{ t('filter.pasteRows') }}
       </button>
       <button
         class="df-btn df-btn-ghost h-7 px-2 text-[11px]"
         type="button"
-        title="Create or change the table structure"
+        :title="t('filter.schemaTitle')"
         :disabled="!store.connectionId || !store.schema || workbench.capabilities?.schemaChanges === false"
         @click="openSchema"
       >
         <Wrench class="h-3 w-3" aria-hidden="true" />
-        Schema
+        {{ t('filter.schema') }}
       </button>
     </div>
 
@@ -138,7 +147,7 @@ function openSchema(): void {
         <button
           class="ml-1 rounded-sm p-0.5 hover:bg-ink/10"
           type="button"
-          :aria-label="`Remove filter on ${filter.column}`"
+          :aria-label="t('filter.remove', { column: filter.column })"
           @click="store.removeFilter(index)"
         >
           <X class="h-3 w-3" aria-hidden="true" />
@@ -149,7 +158,7 @@ function openSchema(): void {
     <DdlDialog v-if="ddl.open" />
     <PasteDialog
       v-model:open="pasteOpen"
-      @pasted="(count) => workbench.pushToast('info', `Added ${count} pasted row(s).`)"
+      @pasted="(count) => workbench.pushToast('info', t('filter.addedPasted', { count }))"
     />
   </section>
 </template>

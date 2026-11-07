@@ -168,6 +168,7 @@ class DemoTransport implements Transport {
   private bootstrap(): BootstrapPayload {
     return {
       protocolVersion: PROTOCOL_VERSION,
+      locale: navigator.language,
       connections: this.connections.map((draft, index) => ({
         id: `demo-${index}`,
         name: draft.name,

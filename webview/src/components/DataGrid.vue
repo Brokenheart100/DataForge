@@ -21,6 +21,7 @@ import {
 import type { CellValue } from '@shared/protocol'
 
 import { useDataEditorStore, type GridRow } from '../stores/data-editor'
+import { t } from '@/lib/i18n'
 
 ModuleRegistry.registerModules([AllCommunityModule])
 
@@ -62,15 +63,15 @@ function isCellEditable(
 const columnDefs = computed<ColDef<GridRow>[]>(() =>
   store.columns.map((column) => {
     const header = column.generated
-      ? `${column.name} · computed`
+      ? `${column.name} · ${t('grid.computed')}`
       : column.isPrimaryKey
         ? `${column.name} · PK`
         : column.name
     return {
       colId: column.name,
       headerName: header,
-      headerTooltip: `${column.dataType}${column.nullable ? '' : ' · NOT NULL'}${
-        column.defaultValue ? ` · default ${column.defaultValue}` : ''
+      headerTooltip: `${column.dataType}${column.nullable ? '' : ` · ${t('grid.notNull')}`}${
+        column.defaultValue ? ` · ${t('grid.default', { value: column.defaultValue })}` : ''
       }`,
       sortable: true,
       minWidth: 110,
@@ -101,6 +102,10 @@ function onSelectionChanged(event: SelectionChangedEvent): void {
 }
 
 const pageJump = ref('')
+
+const overlayNoRows = computed(
+  () => `<span class="df-grid-empty">${t('grid.empty')}</span>`,
+)
 
 async function jumpToPage(): Promise<void> {
   const requested = Number.parseInt(pageJump.value, 10)
@@ -166,7 +171,7 @@ function onCellKeyDown(event: CellKeyDownEvent<GridRow>): void {
         :single-click-edit="false"
         :stop-editing-when-cells-lose-focus="true"
         :animate-rows="false"
-        :overlay-no-rows-template="'<span class=&quot;df-grid-empty&quot;>This page is empty.</span>'"
+        :overlay-no-rows-template="overlayNoRows"
         @grid-ready="onGridReady"
         @selection-changed="onSelectionChanged"
         @sort-changed="onSortChanged"
@@ -177,13 +182,13 @@ function onCellKeyDown(event: CellKeyDownEvent<GridRow>): void {
 
     <div class="df-grid-footer">
       <span class="df-grid-count">
-        {{ store.loading ? 'Loading…' : `${store.totalRows} row(s)` }}
-        <template v-if="store.loading === false"> · page {{ store.pageNumber }} / {{ store.totalPages }}</template>
+        {{ store.loading ? t('grid.loading') : t('grid.rows', { count: store.totalRows }) }}
+        <template v-if="store.loading === false"> · {{ t('grid.page', { page: store.pageNumber, pages: store.totalPages }) }}</template>
       </span>
       <span v-if="store.readOnlyReason" class="df-grid-readonly">{{ store.readOnlyReason }}</span>
       <span class="df-grid-spacer" />
       <label class="df-grid-jump">
-        Go to
+        {{ t('grid.goTo') }}
         <input
           v-model="pageJump"
           class="df-input df-grid-jump-input"
@@ -191,29 +196,29 @@ function onCellKeyDown(event: CellKeyDownEvent<GridRow>): void {
           min="1"
           :max="store.totalPages"
           :disabled="store.loading || store.totalPages <= 1"
-          aria-label="Page number"
+          :aria-label="t('grid.pageNumber')"
           @keydown.enter.prevent="jumpToPage"
         />
       </label>
       <button class="df-btn df-btn-ghost" :disabled="store.loading || store.offset === 0" @click="store.gotoPage(1)">
-        « First
+        {{ t('grid.first') }}
       </button>
       <button class="df-btn df-btn-ghost" :disabled="store.loading || store.offset === 0" @click="store.gotoPage(store.pageNumber - 1)">
-        ‹ Prev
+        {{ t('grid.prev') }}
       </button>
       <button
         class="df-btn df-btn-ghost"
         :disabled="store.loading || store.pageNumber >= store.totalPages"
         @click="store.gotoPage(store.pageNumber + 1)"
       >
-        Next ›
+        {{ t('grid.next') }}
       </button>
       <button
         class="df-btn df-btn-ghost"
         :disabled="store.loading || store.pageNumber >= store.totalPages"
         @click="store.gotoPage(store.totalPages)"
       >
-        Last »
+        {{ t('grid.last') }}
       </button>
     </div>
 
@@ -222,10 +227,10 @@ function onCellKeyDown(event: CellKeyDownEvent<GridRow>): void {
       class="fixed inset-0 z-40 grid place-items-center bg-black/40 p-6"
       @click.self="preview = null"
     >
-      <section class="df-panel df-cell-preview" role="dialog" aria-modal="true" :aria-label="`Value of ${preview.column}`">
+      <section class="df-panel df-cell-preview" role="dialog" aria-modal="true" :aria-label="t('grid.valueOf', { column: preview.column })">
         <header class="df-cell-preview-header">
           <span class="df-code text-xs font-bold">{{ preview.column }}</span>
-          <button class="df-btn df-btn-ghost h-7 px-2 text-[11px]" type="button" @click="preview = null">Close</button>
+          <button class="df-btn df-btn-ghost h-7 px-2 text-[11px]" type="button" @click="preview = null">{{ t('common.close') }}</button>
         </header>
         <pre class="df-code df-cell-preview-body">{{ preview.text }}</pre>
       </section>

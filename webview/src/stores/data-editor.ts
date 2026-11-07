@@ -20,6 +20,7 @@ import type {
 } from '@shared/protocol'
 
 import { HostRequestError, host } from '../lib/host'
+import { t } from '../lib/i18n'
 
 export type RowStatus = 'clean' | 'inserted' | 'updated' | 'deleted'
 
@@ -341,7 +342,7 @@ export const useDataEditorStore = defineStore('data-editor', () => {
   }
 
   async function commit(): Promise<{ inserted: number; updated: number; deleted: number }> {
-    if (!connectionId.value || !schema.value || !relation.value) throw new Error('No relation is open.')
+    if (!connectionId.value || !schema.value || !relation.value) throw new Error(t('error.noRelation'))
     if (changes.value.length === 0) return { inserted: 0, updated: 0, deleted: 0 }
 
     const requestId = crypto.randomUUID()
@@ -386,7 +387,7 @@ export const useDataEditorStore = defineStore('data-editor', () => {
 
   /** Asks the host to stream this relation into a CSV file. */
   async function exportCsv(): Promise<{ saved: boolean; path?: string; rowCount?: number }> {
-    if (!connectionId.value || !schema.value || !relation.value) throw new Error('No relation is open.')
+    if (!connectionId.value || !schema.value || !relation.value) throw new Error(t('error.noRelation'))
 
     const requestId = crypto.randomUUID()
     exportRequestId.value = requestId
@@ -442,7 +443,7 @@ export const useDataEditorStore = defineStore('data-editor', () => {
     format: ImportFormat,
     options: { delimiter?: string; hasHeader?: boolean } = {},
   ): Promise<void> {
-    if (!connectionId.value || !schema.value || !relation.value) throw new Error('No relation is open.')
+    if (!connectionId.value || !schema.value || !relation.value) throw new Error(t('error.noRelation'))
     importLoading.value = true
     try {
       importPreview.value = await host.request('import.preview', {
@@ -490,7 +491,7 @@ export const useDataEditorStore = defineStore('data-editor', () => {
       importResult.value = result
       importErrors.value = result.errors
       if (result.cancelled) {
-        importErrors.value = [{ row: 0, message: 'The import was cancelled.' }, ...result.errors]
+        importErrors.value = [{ row: 0, message: t('import.cancelled') }, ...result.errors]
       } else {
         importOpen.value = false
         importPreview.value = null

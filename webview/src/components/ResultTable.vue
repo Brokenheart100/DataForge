@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 
 import type { CellValue, QueryResultDto } from '@shared/protocol'
+import { t } from '@/lib/i18n'
 
 const props = defineProps<{ result: QueryResultDto }>()
 
@@ -47,12 +48,12 @@ function displayValue(cell: CellValue): string {
           </tr>
         </tbody>
       </table>
-      <p v-if="result.rows.length === 0" class="p-4 text-xs text-muted">The statement returned no rows.</p>
+      <p v-if="result.rows.length === 0" class="p-4 text-xs text-muted">{{ t('result.noRows') }}</p>
     </div>
 
     <div v-if="hiddenRows > 0" class="border-t-2 border-ink bg-surface px-3 py-2">
       <button class="df-btn" type="button" @click="visibleCount += PAGE_SIZE">
-        Show {{ Math.min(hiddenRows, PAGE_SIZE) }} more · {{ hiddenRows }} hidden
+        {{ t('result.showMore', { count: Math.min(hiddenRows, PAGE_SIZE), hidden: hiddenRows }) }}
       </button>
     </div>
   </div>

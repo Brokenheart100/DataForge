@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ExplainPlanNodeDto } from '@shared/protocol'
+import { t } from '@/lib/i18n'
 
 defineOptions({ name: 'PlanTree' })
 
@@ -19,19 +20,19 @@ function number(value: number | undefined): string {
         {{ node.nodeType }}
       </span>
       <span v-if="node.relation" class="text-[11px]">
-        on <span class="font-bold">{{ node.relation }}</span>
-        <span v-if="node.alias && node.alias !== node.relation" class="text-muted"> as {{ node.alias }}</span>
+        {{ t('plan.on') }} <span class="font-bold">{{ node.relation }}</span>
+        <span v-if="node.alias && node.alias !== node.relation" class="text-muted"> {{ t('plan.as') }} {{ node.alias }}</span>
       </span>
       <span v-if="node.indexName" class="df-chip border-forge-purple bg-forge-purple/15 text-[10px]">
-        index {{ node.indexName }}
+        {{ t('plan.index', { name: node.indexName }) }}
       </span>
-      <span v-if="node.joinType" class="df-chip text-[10px]">{{ node.joinType }} join</span>
+      <span v-if="node.joinType" class="df-chip text-[10px]">{{ t('plan.join', { type: node.joinType }) }}</span>
       <span class="ml-auto text-[10px] text-muted">
-        cost {{ number(node.startupCost) }}..{{ number(node.totalCost) }}
-        · rows {{ number(node.planRows) }}
-        · width {{ number(node.planWidth) }}
+        {{ t('plan.cost', { startup: number(node.startupCost), total: number(node.totalCost) }) }}
+        · {{ t('plan.rows', { rows: number(node.planRows) }) }}
+        · {{ t('plan.width', { width: number(node.planWidth) }) }}
         <template v-if="node.actualRows !== undefined">
-          · actual {{ number(node.actualRows) }} rows / {{ number(node.actualTotalTime) }} ms
+          · {{ t('plan.actual', { rows: number(node.actualRows), time: number(node.actualTotalTime) }) }}
         </template>
       </span>
     </div>

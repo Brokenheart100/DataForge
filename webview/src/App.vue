@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  AlertTriangle, Database, Gauge, Loader2, Monitor, Moon, Plug, Play, Plus, RefreshCw, Square, Sun, Table2, Unplug,
+  AlertTriangle, Database, Gauge, Languages, Loader2, Monitor, Moon, Plug, Play, Plus, RefreshCw, Square, Sun, Table2, Unplug,
   Users, Zap,
 } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -18,7 +18,8 @@ import PlanTree from '@/components/PlanTree.vue'
 import ResultTable from '@/components/ResultTable.vue'
 import SessionPanel from '@/components/SessionPanel.vue'
 import { host } from '@/lib/host'
-import { THEME_LABELS, applyTheme, nextTheme, readTheme, saveTheme } from '@/lib/theme'
+import { localeLabel, localeMode, nextLocaleMode, setLocaleMode, t } from '@/lib/i18n'
+import { applyTheme, nextTheme, readTheme, saveTheme } from '@/lib/theme'
 import { useDataEditorStore } from '@/stores/data-editor'
 import { useSessionsStore } from '@/stores/sessions'
 import { useWorkbenchStore } from '@/stores/workbench'
@@ -34,6 +35,11 @@ const editor = ref<HTMLTextAreaElement>()
 const view = ref<'sql' | 'data'>('sql')
 const theme = ref(readTheme())
 const themeIcon = computed(() => (theme.value === 'light' ? Sun : theme.value === 'dark' ? Moon : Monitor))
+const themeLabel = computed(() =>
+  t(theme.value === 'light' ? 'theme.light' : theme.value === 'dark' ? 'theme.dark' : 'theme.auto'),
+)
+const languageLabel = computed(() => localeLabel(localeMode.value))
+const LANGUAGES_ICON = Languages
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 let stopSessionWatch: (() => void) | undefined
 
@@ -135,9 +141,17 @@ async function initializeWorkbench(): Promise<void> {
 
 const stateLabel = computed(() => {
   const active = store.activeConnection
-  if (!active) return 'No connection selected'
+  if (!active) return t('app.noConnectionSelected')
   return `${active.name} · ${active.database}@${active.host}:${active.port}`
 })
+
+function connectionStateLabel(state: string): string {
+  if (state === 'connected') return t('app.stateConnected')
+  if (state === 'connecting') return t('app.stateConnecting')
+  if (state === 'error') return t('app.stateError')
+  if (state === 'disconnected') return t('app.stateDisconnected')
+  return state
+}
 
 onMounted(() => {
   window.addEventListener('keydown', onGlobalKeydown)
@@ -169,7 +183,7 @@ async function closeConsole(key: string): Promise<void> {
 
 function consoleHint(tab: WorkbenchConsole): string {
   const connection = store.connections.find((item) => item.id === tab.connectionId)
-  const state = connection ? connection.state : 'no connection'
+  const state = connection ? connectionStateLabel(connection.state) : t('app.noConnection')
   return `${tab.title} · ${state}`
 }
 
@@ -209,6 +223,10 @@ function cycleTheme(): void {
   theme.value = nextTheme(theme.value)
   applyTheme(theme.value)
   saveTheme(theme.value)
+}
+
+function cycleLanguage(): void {
+  setLocaleMode(nextLocaleMode(localeMode.value))
 }
 
 async function toggleConnection(connection: ConnectionSummary): Promise<void> {
@@ -258,16 +276,22 @@ const stateChip = (connection: ConnectionSummary): string => {
       </div>
       <span class="df-chip bg-white text-[#14121a]">PostgreSQL</span>
       <div class="ml-auto flex items-center gap-2">
-        <span class="text-[11px] font-semibold">{{ store.connectedCount }} connected</span>
+        <span class="text-[11px] font-semibold">{{ t('app.connectedCount', { count: store.connectedCount }) }}</span>
         <button class="df-btn px-2 py-1" type="button"
-          :title="`Theme: ${THEME_LABELS[theme]} (click to change)`" :aria-label="`Theme: ${THEME_LABELS[theme]}`"
+          :title="t('lang.title', { label: languageLabel })" :aria-label="t('lang.title', { label: languageLabel })"
+          @click="cycleLanguage">
+          <component :is="LANGUAGES_ICON" :size="12" />
+          {{ languageLabel }}
+        </button>
+        <button class="df-btn px-2 py-1" type="button"
+          :title="t('theme.title', { label: themeLabel })" :aria-label="t('theme.title', { label: themeLabel })"
           @click="cycleTheme">
           <component :is="themeIcon" :size="12" />
-          {{ THEME_LABELS[theme] }}
+          {{ themeLabel }}
         </button>
-        <button class="df-btn px-2 py-1" type="button" title="Refresh connections" @click="store.refresh()">
+        <button class="df-btn px-2 py-1" type="button" :title="t('app.refreshTitle')" @click="store.refresh()">
           <RefreshCw :size="12" />
-          Refresh
+          {{ t('common.refresh') }}
         </button>
       </div>
     </header>
@@ -275,17 +299,17 @@ const stateChip = (connection: ConnectionSummary): string => {
     <div class="flex min-h-0 flex-1">
       <aside class="flex w-64 shrink-0 flex-col border-r-2 border-ink bg-paper">
         <div class="flex items-center justify-between gap-2 border-b-2 border-ink px-3 py-2">
-          <h2 class="text-[11px] font-black uppercase tracking-widest text-muted">Connections</h2>
-          <button class="df-btn df-btn-primary px-2 py-1" type="button" title="New connection" @click="openNew">
+          <h2 class="text-[11px] font-black uppercase tracking-widest text-muted">{{ t('app.connections') }}</h2>
+          <button class="df-btn df-btn-primary px-2 py-1" type="button" :title="t('app.newConnectionTitle')" @click="openNew">
             <Plus :size="12" />
-            New
+            {{ t('app.new') }}
           </button>
         </div>
 
         <div class="flex-1 space-y-2 overflow-y-auto p-2">
           <p v-if="store.connections.length === 0"
             class="border-2 border-dashed border-ink/40 p-3 text-[11px] text-muted">
-            No connections yet. Create one to start exploring a PostgreSQL database.
+            {{ t('app.emptyConnections') }}
           </p>
 
           <article v-for="connection in store.connections" :key="connection.id" class="df-panel cursor-pointer p-2"
@@ -298,8 +322,8 @@ const stateChip = (connection: ConnectionSummary): string => {
               connection.port }}</p>
 
             <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <span class="df-chip" :class="stateChip(connection)">{{ connection.state }}</span>
-              <span v-if="connection.readOnly" class="df-chip border-forge-purple">read-only</span>
+              <span class="df-chip" :class="stateChip(connection)">{{ connectionStateLabel(connection.state) }}</span>
+              <span v-if="connection.readOnly" class="df-chip border-forge-purple">{{ t('app.readOnly') }}</span>
               <span v-if="connection.ssl === 'require'" class="df-chip border-forge-blue">ssl</span>
               <span v-if="connection.serverVersion" class="truncate text-[10px] text-muted">{{ connection.serverVersion
                 }}</span>
@@ -312,25 +336,25 @@ const stateChip = (connection: ConnectionSummary): string => {
             <div class="mt-2 flex items-center gap-1.5" @click.stop>
               <button class="df-btn px-1.5 py-0.5 text-[10px]" type="button" @click="toggleConnection(connection)">
                 <component :is="connection.state === 'connected' ? Unplug : Plug" :size="11" />
-                {{ connection.state === 'connected' ? 'Disconnect' : 'Connect' }}
+                {{ connection.state === 'connected' ? t('app.disconnect') : t('app.connect') }}
               </button>
               <button class="df-btn df-btn-ghost px-1.5 py-0.5 text-[10px]" type="button" @click="openEdit(connection)">
-                Edit
+                {{ t('app.edit') }}
               </button>
 
               <template v-if="pendingDelete === connection.id">
                 <button class="df-btn df-btn-danger px-1.5 py-0.5 text-[10px]" type="button"
                   @click="removeConnection(connection)">
-                  Confirm delete
+                  {{ t('app.confirmDelete') }}
                 </button>
                 <button class="df-btn df-btn-ghost px-1.5 py-0.5 text-[10px]" type="button"
                   @click="pendingDelete = undefined">
-                  Keep
+                  {{ t('app.keep') }}
                 </button>
               </template>
               <button v-else class="df-btn df-btn-ghost ml-auto px-1.5 py-0.5 text-[10px]" type="button"
                 @click="pendingDelete = connection.id">
-                Delete
+                {{ t('app.delete') }}
               </button>
             </div>
           </article>
@@ -351,13 +375,13 @@ const stateChip = (connection: ConnectionSummary): string => {
             <span v-if="tab.transactionOpen"
               class="border border-[#14121a] bg-forge-purple px-1 text-[9px] uppercase tracking-widest text-[#14121a]">tx</span>
             <span class="ml-0.5 grid size-4 cursor-pointer place-items-center border border-ink/30 text-[11px] leading-none hover:bg-forge-red hover:text-[#14121a]"
-              role="button" tabindex="0" :aria-label="`Close ${tab.title}`" @click.stop="closeConsole(tab.key)"
+              role="button" tabindex="0" :aria-label="t('app.closeTab', { title: tab.title })" @click.stop="closeConsole(tab.key)"
               @keydown.enter.stop="closeConsole(tab.key)">×</span>
           </button>
-          <button class="df-btn df-btn-ghost my-1 shrink-0 px-2 py-0.5" type="button" title="New console"
+          <button class="df-btn df-btn-ghost my-1 shrink-0 px-2 py-0.5" type="button" :title="t('app.newConsoleTitle')"
             @click="store.addConsole()">
             <Plus :size="12" />
-            Console
+            {{ t('app.console') }}
           </button>
         </div>
 
@@ -369,14 +393,14 @@ const stateChip = (connection: ConnectionSummary): string => {
           <button class="df-btn px-2 py-1" :class="view === 'data' ? 'df-btn-primary' : 'df-btn-ghost'" type="button"
             :disabled="store.capabilities?.dataEditing === false"
             :title="store.capabilities?.dataEditing === false
-              ? 'This driver does not support the data editor yet.'
-              : 'Browse table data'"
+              ? t('app.dataDisabled')
+              : t('app.browseData')"
             @click="view = 'data'">
             <Table2 :size="12" />
-            Data
+            {{ t('app.dataEmptyTitle') }}
           </button>
           <span v-if="view === 'data'" class="df-code truncate text-[11px] font-bold">
-            {{ dataEditor.qualifiedName || 'no relation open' }}
+            {{ dataEditor.qualifiedName || t('app.noRelation') }}
           </span>
           <span class="ml-auto flex items-center gap-1 text-[10px] text-muted">
             <Zap :size="10" />
@@ -388,9 +412,9 @@ const stateChip = (connection: ConnectionSummary): string => {
           <div class="flex shrink-0 flex-wrap items-center gap-2 border-b-2 border-ink px-3 py-2">
             <select :value="store.activeConnectionId" class="df-input max-w-64"
               :disabled="store.running || store.transactionOpen" @change="onConnectionChange">
-              <option :value="undefined" disabled>Select a connection…</option>
+              <option :value="undefined" disabled>{{ t('app.selectConnection') }}</option>
               <option v-for="connection in store.connections" :key="connection.id" :value="connection.id">
-                {{ connection.name }} ({{ connection.state }})
+                {{ connection.name }} ({{ connectionStateLabel(connection.state) }})
               </option>
             </select>
 
@@ -398,45 +422,47 @@ const stateChip = (connection: ConnectionSummary): string => {
               @click="runQuery">
               <Loader2 v-if="store.running" :size="13" class="animate-spin" />
               <Play v-else :size="13" />
-              Run
+              {{ t('app.run') }}
               <kbd class="ml-1 text-[10px] font-normal opacity-70">Ctrl/⌘↵</kbd>
             </button>
             <button v-if="store.running" class="df-btn df-btn-danger" type="button" @click="store.cancelQuery()">
               <Square :size="12" />
-              Cancel
+              {{ t('app.cancel') }}
             </button>
             <button class="df-btn df-btn-ghost" type="button" :disabled="store.explaining || !store.activeConnectionId"
               @click="runExplain">
               <Loader2 v-if="store.explaining" :size="12" class="animate-spin" />
               <Gauge v-else :size="12" />
-              Explain
+              {{ t('app.explain') }}
             </button>
             <button v-if="store.capabilities?.sessions !== false" class="df-btn df-btn-ghost" type="button"
               :disabled="!store.activeConnectionId" @click="openSessions">
               <Users :size="12" />
-              Sessions
+              {{ t('app.sessions') }}
             </button>
 
             <template v-if="store.capabilities?.transactions !== false">
               <button v-if="!store.transactionOpen" class="df-btn df-btn-ghost" type="button"
                 :disabled="store.transactionBusy || !store.activeConnectionId" @click="store.beginTransaction()">
-                Begin transaction
+                {{ t('app.beginTransaction') }}
               </button>
               <template v-else>
-                <span class="df-chip border-forge-purple bg-forge-purple text-[#14121a]">in transaction</span>
+                <span class="df-chip border-forge-purple bg-forge-purple text-[#14121a]">{{ t('app.inTransaction') }}</span>
                 <button class="df-btn df-btn-primary" type="button" :disabled="store.transactionBusy"
                   @click="store.commitTransaction()">
-                  Commit
+                  {{ t('app.commit') }}
                 </button>
                 <button class="df-btn df-btn-danger" type="button" :disabled="store.transactionBusy"
                   @click="store.rollbackTransaction()">
-                  Rollback
+                  {{ t('app.rollback') }}
                 </button>
               </template>
             </template>
 
-            <button class="df-btn df-btn-ghost ml-auto" type="button" @click="store.clearResult()">Clear</button>
-            <span class="df-chip">max {{ store.prefs.maxRows }} rows</span>
+            <button class="df-btn df-btn-ghost ml-auto" type="button" @click="store.clearResult()">
+              {{ t('app.clear') }}
+            </button>
+            <span class="df-chip">{{ t('app.maxRows', { count: store.prefs.maxRows }) }}</span>
           </div>
 
           <div class="shrink-0 p-3">
@@ -450,7 +476,7 @@ const stateChip = (connection: ConnectionSummary): string => {
               </div>
               <textarea ref="editor" v-model="store.sql"
                 class="df-code df-editor block h-40 w-full resize-y border-0 p-2 outline-none" spellcheck="false"
-                placeholder="SELECT * FROM public.customers LIMIT 100;" @keydown="onEditorKeydown" />
+                :placeholder="t('app.editorPlaceholder')" @keydown="onEditorKeydown" />
             </div>
           </div>
 
@@ -467,10 +493,12 @@ const stateChip = (connection: ConnectionSummary): string => {
               <div class="flex shrink-0 items-center gap-3 border-b-2 border-ink bg-surface px-2 py-1">
                 <span class="flex items-center gap-1 text-[11px] font-bold">
                   <Gauge :size="12" />
-                  EXPLAIN (FORMAT JSON)
+                  {{ t('app.explainHeader') }}
                 </span>
                 <span class="text-[11px] text-muted">{{ store.explainResult.durationMs }} ms</span>
-                <button class="df-btn df-btn-ghost ml-auto" type="button" @click="store.clearResult()">Close</button>
+                <button class="df-btn df-btn-ghost ml-auto" type="button" @click="store.clearResult()">
+                  {{ t('common.close') }}
+                </button>
               </div>
               <PlanTree v-if="store.explainResult.root" :node="store.explainResult.root" class="max-h-72 overflow-auto p-2" />
               <pre v-else class="df-code m-0 max-h-72 overflow-auto p-2 text-[11px]">{{ store.explainResult.plan }}</pre>
@@ -482,13 +510,13 @@ const stateChip = (connection: ConnectionSummary): string => {
                   <Table2 :size="12" />
                   {{ store.result.command }}
                 </span>
-                <span class="text-[11px] text-muted">{{ store.result.rowCount }} rows</span>
+                <span class="text-[11px] text-muted">{{ t('app.rows', { count: store.result.rowCount }) }}</span>
                 <span class="text-[11px] text-muted">{{ store.result.durationMs }} ms</span>
                 <span v-if="store.result.affectedRows !== null" class="text-[11px] text-muted">
-                  {{ store.result.affectedRows }} affected
+                  {{ t('app.affected', { count: store.result.affectedRows }) }}
                 </span>
                 <span v-if="store.result.truncated"
-                  class="df-chip border-forge-pink bg-forge-pink text-[#14121a]">truncated</span>
+                  class="df-chip border-forge-pink bg-forge-pink text-[#14121a]">{{ t('app.truncated') }}</span>
                 <span v-for="notice in store.result.notices" :key="notice"
                   class="ml-auto truncate text-[10px] text-muted">
                   {{ notice }}
@@ -500,10 +528,8 @@ const stateChip = (connection: ConnectionSummary): string => {
             <div v-else-if="!store.error"
               class="grid flex-1 place-items-center border-2 border-dashed border-ink/30 text-center">
               <div class="max-w-sm space-y-1 p-6">
-                <p class="text-xs font-bold uppercase tracking-widest text-muted">Results</p>
-                <p class="text-[11px] text-muted">Run a statement to see rows here. Results are capped at {{
-                  store.prefs.maxRows
-                }} rows.</p>
+                <p class="text-xs font-bold uppercase tracking-widest text-muted">{{ t('app.results') }}</p>
+                <p class="text-[11px] text-muted">{{ t('app.resultsHint', { count: store.prefs.maxRows }) }}</p>
               </div>
             </div>
           </div>
@@ -521,9 +547,8 @@ const stateChip = (connection: ConnectionSummary): string => {
           </template>
           <div v-else class="grid flex-1 place-items-center border-2 border-dashed border-ink/30 text-center">
             <div class="max-w-sm space-y-1 p-6">
-              <p class="text-xs font-bold uppercase tracking-widest text-muted">Data</p>
-              <p class="text-[11px] text-muted">Pick a table or view in the DataForge explorer to browse and edit its
-                rows. Views and tables without a primary key open read-only.</p>
+              <p class="text-xs font-bold uppercase tracking-widest text-muted">{{ t('app.dataEmptyTitle') }}</p>
+              <p class="text-[11px] text-muted">{{ t('app.dataEmptyHint') }}</p>
             </div>
           </div>
         </div>
@@ -532,10 +557,10 @@ const stateChip = (connection: ConnectionSummary): string => {
 
     <footer class="flex shrink-0 items-center gap-3 border-t-2 border-ink bg-surface px-3 py-1 text-[10px] text-muted">
       <span class="truncate">{{ stateLabel }}</span>
-      <span class="ml-auto">statement timeout {{ store.prefs.statementTimeoutMs }} ms</span>
+      <span class="ml-auto">{{ t('app.statementTimeout', { ms: store.prefs.statementTimeoutMs }) }}</span>
       <span v-if="store.running" class="flex items-center gap-1 font-bold text-forge-purple">
         <Loader2 :size="10" class="animate-spin" />
-        running
+        {{ t('app.running') }}
       </span>
     </footer>
 

@@ -4,6 +4,7 @@ import { Loader2, RefreshCw, Users, X } from 'lucide-vue-next'
 import type { ServerSessionDto } from '@shared/protocol'
 
 import { useSessionsStore } from '@/stores/sessions'
+import { t } from '@/lib/i18n'
 
 const sessions = useSessionsStore()
 
@@ -32,16 +33,16 @@ function isMine(session: ServerSessionDto): boolean {
     <div class="df-panel flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden">
       <div class="flex shrink-0 items-center gap-2 border-b-2 border-ink bg-forge-yellow px-3 py-2">
         <Users :size="15" />
-        <h2 class="text-[13px] font-black uppercase tracking-wide">Server sessions</h2>
-        <span v-if="sessions.currentUser" class="df-chip text-[10px]">as {{ sessions.currentUser }}</span>
-        <span class="text-[10px] text-muted">long-running after {{ duration(sessions.longRunningMs) }}</span>
+        <h2 class="text-[13px] font-black uppercase tracking-wide">{{ t('sessions.title') }}</h2>
+        <span v-if="sessions.currentUser" class="df-chip text-[10px]">{{ t('sessions.as', { user: sessions.currentUser }) }}</span>
+        <span class="text-[10px] text-muted">{{ t('sessions.longAfter', { duration: duration(sessions.longRunningMs) }) }}</span>
         <div class="ml-auto flex items-center gap-2">
           <button class="df-btn df-btn-ghost" type="button" :disabled="sessions.loading" @click="sessions.refresh()">
             <Loader2 v-if="sessions.loading" :size="12" class="animate-spin" />
             <RefreshCw v-else :size="12" />
-            Refresh
+            {{ t('common.refresh') }}
           </button>
-          <button class="df-btn df-btn-ghost" type="button" aria-label="Close" @click="sessions.close()">
+          <button class="df-btn df-btn-ghost" type="button" :aria-label="t('common.close')" @click="sessions.close()">
             <X :size="14" />
           </button>
         </div>
@@ -55,12 +56,12 @@ function isMine(session: ServerSessionDto): boolean {
         <table class="w-full border-collapse text-left text-[11px]">
           <thead class="sticky top-0 z-10 bg-surface">
             <tr class="border-b-2 border-ink text-[10px] uppercase tracking-wide text-muted">
-              <th class="px-2 py-1 font-bold">Id</th>
-              <th class="px-2 py-1 font-bold">User</th>
-              <th class="px-2 py-1 font-bold">Database</th>
-              <th class="px-2 py-1 font-bold">State</th>
-              <th class="px-2 py-1 font-bold">For</th>
-              <th class="px-2 py-1 font-bold">Query</th>
+              <th class="px-2 py-1 font-bold">{{ t('sessions.id') }}</th>
+              <th class="px-2 py-1 font-bold">{{ t('sessions.user') }}</th>
+              <th class="px-2 py-1 font-bold">{{ t('sessions.database') }}</th>
+              <th class="px-2 py-1 font-bold">{{ t('sessions.state') }}</th>
+              <th class="px-2 py-1 font-bold">{{ t('sessions.for') }}</th>
+              <th class="px-2 py-1 font-bold">{{ t('sessions.query') }}</th>
               <th class="px-2 py-1 font-bold" />
             </tr>
           </thead>
@@ -69,7 +70,7 @@ function isMine(session: ServerSessionDto): boolean {
               <td class="df-code px-2 py-1.5">{{ session.id }}</td>
               <td class="px-2 py-1.5">
                 {{ session.user ?? '–' }}
-                <span v-if="isMine(session)" class="df-chip ml-1 text-[9px]">you</span>
+                <span v-if="isMine(session)" class="df-chip ml-1 text-[9px]">{{ t('sessions.you') }}</span>
               </td>
               <td class="px-2 py-1.5">{{ session.database ?? '–' }}</td>
               <td class="px-2 py-1.5">
@@ -86,33 +87,33 @@ function isMine(session: ServerSessionDto): boolean {
               </td>
               <td class="df-code max-w-[360px] px-2 py-1.5 whitespace-normal break-words text-[10px]">
                 {{ shortSql(session) || '–' }}
-                <span v-if="session.application" class="mt-1 block text-muted">{{ session.application }} · {{ session.client ?? 'local' }}</span>
+                <span v-if="session.application" class="mt-1 block text-muted">{{ session.application }} · {{ session.client ?? t('sessions.local') }}</span>
               </td>
               <td class="px-2 py-1.5">
                 <div v-if="sessions.confirmId === session.id" class="flex items-center gap-1">
                   <button class="df-btn df-btn-danger" type="button" :disabled="sessions.terminatingId === session.id"
                     @click="sessions.terminate(session.id)">
                     <Loader2 v-if="sessions.terminatingId === session.id" :size="12" class="animate-spin" />
-                    Confirm
+                    {{ t('sessions.confirm') }}
                   </button>
-                  <button class="df-btn df-btn-ghost" type="button" @click="sessions.cancelTerminate()">No</button>
+                  <button class="df-btn df-btn-ghost" type="button" @click="sessions.cancelTerminate()">{{ t('sessions.no') }}</button>
                 </div>
                 <button v-else class="df-btn df-btn-ghost" type="button" :disabled="!isMine(session)"
-                  :title="isMine(session) ? 'Terminate this session' : 'Only sessions of the connection user can be terminated'"
+                  :title="isMine(session) ? t('sessions.terminateTitle') : t('sessions.cannotTerminate')"
                   @click="sessions.askTerminate(session.id)">
-                  Terminate
+                  {{ t('sessions.terminate') }}
                 </button>
               </td>
             </tr>
             <tr v-if="!sessions.loading && sessions.sessions.length === 0">
-              <td colspan="7" class="px-2 py-6 text-center text-muted">No other sessions are connected.</td>
+              <td colspan="7" class="px-2 py-6 text-center text-muted">{{ t('sessions.empty') }}</td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <div class="shrink-0 border-t-2 border-ink bg-surface px-3 py-1.5 text-[10px] text-muted">
-        Only sessions owned by the connection user can be terminated. The host asks the server to close the backend.
+        {{ t('sessions.footer') }}
       </div>
     </div>
   </div>

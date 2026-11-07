@@ -63,6 +63,7 @@ MySQL 的数据编辑/导出/事务/结构变更未开启；SQL Server 只读；
 | `Tunnel` | `infrastructure/ssh/tunnel.ts` | SSH 本地端口转发，供驱动连 `127.0.0.1:<port>`（已交付） |
 | `WorkbenchStateStore` | `infrastructure/persistence/workbench-state-store.ts` | 工作台会话快照：Zod 校验后写入 `globalState`，重载后恢复标签/SQL/数据页（已交付） |
 | `ThemeMode` | `webview/src/lib/theme.ts` | `system/light/dark` 三态主题：`data-df-theme` 覆盖 VS Code 的 `vscode-dark` 类，选择存 `localStorage`（已交付） |
+| `i18n` | `webview/src/lib/i18n.ts` | Auto/English/中文 三态界面语言；`BootstrapPayload.locale` 提供 VS Code 显示语言，Auto 时优先使用；选择存 `localStorage`，缺失中文键由类型检查发现（已交付） |
 
 驱动端口保持小而稳：`DatabaseDriver`（查询/元数据）＋ 可选能力
 `DataEditingDriver`、`TableExportDriver`、`TransactionalDriver`、`DdlDriver`（提供

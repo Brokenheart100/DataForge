@@ -255,6 +255,9 @@ export const languages = {
   registerCompletionItemProvider: () => ({ dispose: () => undefined }),
 }
 
+/** Display language exposed to the workbench bootstrap for Auto locale. */
+export const env = { language: 'en' }
+
 export interface MockMemento {
   get<T>(key: string, fallback?: T): T | undefined
   update(key: string, value: unknown): Promise<void>
