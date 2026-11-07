@@ -8,6 +8,8 @@ const watch = process.argv.includes('--watch')
  * `vscode` is provided by the host at runtime and `pg-native` is an optional
  * native addon of `pg` that must stay unresolved. `cpu-features` is the same
  * kind of optional native addon for `ssh2`; ssh2 already guards the require.
+ * `*.node` keeps optional prebuilt bindings (for example ssh2's `sshcrypto`)
+ * out of the bundle on runners that do have them installed.
  */
 const options = {
   entryPoints: ['src/extension.ts'],
@@ -16,7 +18,7 @@ const options = {
   platform: 'node',
   format: 'cjs',
   target: 'node22',
-  external: ['vscode', 'pg-native', 'cpu-features'],
+  external: ['vscode', 'pg-native', 'cpu-features', '*.node'],
   sourcemap: production ? false : 'inline',
   minify: production,
   logLevel: 'info',
