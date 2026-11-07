@@ -4,7 +4,7 @@
 能力矩阵与差异清单见 [datagrip-parity.md](datagrip-parity.md)，目标架构见
 [architecture.md](architecture.md)，依赖取舍见 [dependencies.md](dependencies.md)。
 
-## 1. 现状（0.1.4）
+## 1. 现状（0.1.5）
 
 | 已交付 | 说明 |
 | --- | --- |

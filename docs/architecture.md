@@ -2,7 +2,7 @@
 
 目标：在 VS Code 内提供与 DataGrip 等价的核心工作流——多数据源、按库作用域浏览、
 多控制台、对象与结构管理、导入导出、事务与运维视图。本文描述**目标架构**以及
-从 0.1.4 演进到它的路径；能力矩阵与阶段划分见 [datagrip-parity.md](datagrip-parity.md)。
+从 0.1.5 演进到它的路径；能力矩阵与阶段划分见 [datagrip-parity.md](datagrip-parity.md)。
 
 ## 1. 边界与约束
 
@@ -16,7 +16,7 @@
   ORM、查询 DSL 或通用 SQL 解析器。
 - 安全默认：密码进 SecretStorage，写操作参数化，标识符统一引用，危险操作二次确认。
 
-## 2. 当前状态（0.1.4）
+## 2. 当前状态（0.1.5）
 
 已交付：连接管理（PostgreSQL/MySQL/只读 SQL Server、SSH 隧道、能力矩阵）、资源树
 （连接 → Databases → 库 → Schemas → 表/视图 → 列）、按库作用域浏览（副库只读）、

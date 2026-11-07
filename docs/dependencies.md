@@ -83,7 +83,7 @@
 
 ## 6. 体积与性能预算
 
-| 产物 | 预算 | 现状（0.1.4） |
+| 产物 | 预算 | 现状（0.1.5） |
 | --- | --- | --- |
 | `extension/dist/extension.js` | ≤5 MB | ~3.3 MB（含 pg + mysql2 + ssh2 + tedious） |
 | Webview `index.js` | ≤1.5 MB（gzip ≤400 KB） | ~1.40 MB（AG Grid 占大头） |
