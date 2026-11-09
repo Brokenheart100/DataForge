@@ -4,9 +4,9 @@
  * DataForge design tokens.
  *
  * The neo-brutalist chrome (thick ink borders, hard shadows, saturated accents)
- * is fixed branding, while every reading surface follows the VS Code theme
- * variables. `--df-*` values flip with the active theme so the same components
- * work in light, dark and high-contrast editors.
+ * is fixed branding, while the reading surfaces use the `--df-*` tokens. The
+ * editor's light/dark classes flip those tokens, and an explicit theme choice
+ * wins over the editor so every text/background pair stays in the same mode.
  */
 :root {
   --df-ink: #14121a;
@@ -86,7 +86,7 @@ body.vscode-high-contrast:not([data-df-theme]) {
   body {
     margin: 0;
     background: var(--df-paper);
-    color: var(--vscode-foreground, var(--df-ink));
+    color: var(--df-ink);
     font-family: var(--font-sans);
     font-size: 13px;
     line-height: 1.45;
@@ -138,7 +138,7 @@ body.vscode-high-contrast:not([data-df-theme]) {
     padding: 0.375rem 0.75rem;
     border: 2px solid var(--df-ink);
     background: var(--df-surface);
-    color: var(--vscode-foreground, var(--df-ink));
+    color: var(--df-ink);
     font-size: 12px;
     font-weight: 600;
     line-height: 1.2;
@@ -195,14 +195,14 @@ body.vscode-high-contrast:not([data-df-theme]) {
     width: 100%;
     padding: 0.3rem 0.5rem;
     border: 2px solid var(--df-ink);
-    background: var(--vscode-input-background, var(--df-surface));
-    color: var(--vscode-input-foreground, var(--vscode-foreground, var(--df-ink)));
+    background: var(--df-surface);
+    color: var(--df-ink);
     font-family: inherit;
     font-size: 12px;
   }
 
   .df-input::placeholder {
-    color: var(--vscode-input-placeholderForeground, var(--df-muted));
+    color: var(--df-muted);
   }
 
   .df-input:focus {
@@ -239,12 +239,17 @@ body.vscode-high-contrast:not([data-df-theme]) {
     tab-size: 2;
   }
 
-  /* The SQL buffer follows the editor colours inside VS Code and falls back to
-     paper tones when the workbench is previewed in a plain browser. */
+  /* The SQL buffer uses the paper palette so it stays legible even when the
+     editor theme and the chosen workbench theme differ. */
   .df-editor {
-    background: var(--vscode-editor-background, color-mix(in srgb, var(--df-paper) 55%, white));
-    color: var(--vscode-editor-foreground, var(--df-ink));
+    background: color-mix(in srgb, var(--df-paper) 55%, var(--df-surface));
+    color: var(--df-ink);
     caret-color: var(--df-ink);
+  }
+
+  .df-editor::placeholder {
+    color: var(--df-muted);
+    opacity: 1;
   }
 
   .df-editor::selection {

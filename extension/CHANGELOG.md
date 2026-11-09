@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Switching the workbench to Light or Dark no longer inherits the editor's
+  foreground colour, which made body text, buttons, inputs and the SQL editor
+  unreadable when the two themes disagreed.
+
 ## 0.1.5 — 2026-11-07
 
 ### Added

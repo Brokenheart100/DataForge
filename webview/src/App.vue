@@ -277,15 +277,13 @@ const stateChip = (connection: ConnectionSummary): string => {
       <span class="df-chip bg-white text-[#14121a]">PostgreSQL</span>
       <div class="ml-auto flex items-center gap-2">
         <span class="text-[11px] font-semibold">{{ t('app.connectedCount', { count: store.connectedCount }) }}</span>
-        <button class="df-btn px-2 py-1" type="button"
-          :title="t('lang.title', { label: languageLabel })" :aria-label="t('lang.title', { label: languageLabel })"
-          @click="cycleLanguage">
+        <button class="df-btn px-2 py-1" type="button" :title="t('lang.title', { label: languageLabel })"
+          :aria-label="t('lang.title', { label: languageLabel })" @click="cycleLanguage">
           <component :is="LANGUAGES_ICON" :size="12" />
           {{ languageLabel }}
         </button>
-        <button class="df-btn px-2 py-1" type="button"
-          :title="t('theme.title', { label: themeLabel })" :aria-label="t('theme.title', { label: themeLabel })"
-          @click="cycleTheme">
+        <button class="df-btn px-2 py-1" type="button" :title="t('theme.title', { label: themeLabel })"
+          :aria-label="t('theme.title', { label: themeLabel })" @click="cycleTheme">
           <component :is="themeIcon" :size="12" />
           {{ themeLabel }}
         </button>
@@ -300,7 +298,8 @@ const stateChip = (connection: ConnectionSummary): string => {
       <aside class="flex w-64 shrink-0 flex-col border-r-2 border-ink bg-paper">
         <div class="flex items-center justify-between gap-2 border-b-2 border-ink px-3 py-2">
           <h2 class="text-[11px] font-black uppercase tracking-widest text-muted">{{ t('app.connections') }}</h2>
-          <button class="df-btn df-btn-primary px-2 py-1" type="button" :title="t('app.newConnectionTitle')" @click="openNew">
+          <button class="df-btn df-btn-primary px-2 py-1" type="button" :title="t('app.newConnectionTitle')"
+            @click="openNew">
             <Plus :size="12" />
             {{ t('app.new') }}
           </button>
@@ -365,7 +364,7 @@ const stateChip = (connection: ConnectionSummary): string => {
         <div class="flex shrink-0 items-stretch gap-1 overflow-x-auto border-b-2 border-ink bg-surface px-2 pt-1.5">
           <button v-for="tab in store.consoles" :key="tab.key" type="button"
             class="flex shrink-0 items-center gap-1.5 border-2 border-ink px-2 py-1 text-[11px] font-bold"
-            :class="tab.key === store.activeConsoleId ? 'bg-forge-yellow text-[#14121a] shadow-[2px_2px_0_0_var(--df-ink)]' : 'bg-paper text-muted'"
+            :class="tab.key === store.activeConsoleId ? 'bg-forge-yellow text-[#14121a] shadow-brutal-sm' : 'bg-paper text-muted'"
             :title="consoleHint(tab)" @click="store.setActiveConsole(tab.key)">
             <span v-if="tab.running" class="size-2 animate-pulse rounded-full bg-forge-purple" />
             <span v-else-if="tab.transactionOpen" class="size-2 rounded-full bg-forge-mint" />
@@ -374,9 +373,10 @@ const stateChip = (connection: ConnectionSummary): string => {
             <span class="max-w-40 truncate">{{ tab.title }}</span>
             <span v-if="tab.transactionOpen"
               class="border border-[#14121a] bg-forge-purple px-1 text-[9px] uppercase tracking-widest text-[#14121a]">tx</span>
-            <span class="ml-0.5 grid size-4 cursor-pointer place-items-center border border-ink/30 text-[11px] leading-none hover:bg-forge-red hover:text-[#14121a]"
-              role="button" tabindex="0" :aria-label="t('app.closeTab', { title: tab.title })" @click.stop="closeConsole(tab.key)"
-              @keydown.enter.stop="closeConsole(tab.key)">×</span>
+            <span
+              class="ml-0.5 grid size-4 cursor-pointer place-items-center border border-ink/30 text-[11px] leading-none hover:bg-forge-red hover:text-[#14121a]"
+              role="button" tabindex="0" :aria-label="t('app.closeTab', { title: tab.title })"
+              @click.stop="closeConsole(tab.key)" @keydown.enter.stop="closeConsole(tab.key)">×</span>
           </button>
           <button class="df-btn df-btn-ghost my-1 shrink-0 px-2 py-0.5" type="button" :title="t('app.newConsoleTitle')"
             @click="store.addConsole()">
@@ -391,11 +391,9 @@ const stateChip = (connection: ConnectionSummary): string => {
             SQL
           </button>
           <button class="df-btn px-2 py-1" :class="view === 'data' ? 'df-btn-primary' : 'df-btn-ghost'" type="button"
-            :disabled="store.capabilities?.dataEditing === false"
-            :title="store.capabilities?.dataEditing === false
+            :disabled="store.capabilities?.dataEditing === false" :title="store.capabilities?.dataEditing === false
               ? t('app.dataDisabled')
-              : t('app.browseData')"
-            @click="view = 'data'">
+              : t('app.browseData')" @click="view = 'data'">
             <Table2 :size="12" />
             {{ t('app.dataEmptyTitle') }}
           </button>
@@ -447,7 +445,8 @@ const stateChip = (connection: ConnectionSummary): string => {
                 {{ t('app.beginTransaction') }}
               </button>
               <template v-else>
-                <span class="df-chip border-forge-purple bg-forge-purple text-[#14121a]">{{ t('app.inTransaction') }}</span>
+                <span class="df-chip border-forge-purple bg-forge-purple text-[#14121a]">{{ t('app.inTransaction')
+                }}</span>
                 <button class="df-btn df-btn-primary" type="button" :disabled="store.transactionBusy"
                   @click="store.commitTransaction()">
                   {{ t('app.commit') }}
@@ -500,8 +499,10 @@ const stateChip = (connection: ConnectionSummary): string => {
                   {{ t('common.close') }}
                 </button>
               </div>
-              <PlanTree v-if="store.explainResult.root" :node="store.explainResult.root" class="max-h-72 overflow-auto p-2" />
-              <pre v-else class="df-code m-0 max-h-72 overflow-auto p-2 text-[11px]">{{ store.explainResult.plan }}</pre>
+              <PlanTree v-if="store.explainResult.root" :node="store.explainResult.root"
+                class="max-h-72 overflow-auto p-2" />
+              <pre v-else
+                class="df-code m-0 max-h-72 overflow-auto p-2 text-[11px]">{{ store.explainResult.plan }}</pre>
             </div>
 
             <div v-if="store.result" class="df-panel flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -515,8 +516,8 @@ const stateChip = (connection: ConnectionSummary): string => {
                 <span v-if="store.result.affectedRows !== null" class="text-[11px] text-muted">
                   {{ t('app.affected', { count: store.result.affectedRows }) }}
                 </span>
-                <span v-if="store.result.truncated"
-                  class="df-chip border-forge-pink bg-forge-pink text-[#14121a]">{{ t('app.truncated') }}</span>
+                <span v-if="store.result.truncated" class="df-chip border-forge-pink bg-forge-pink text-[#14121a]">{{
+                  t('app.truncated') }}</span>
                 <span v-for="notice in store.result.notices" :key="notice"
                   class="ml-auto truncate text-[10px] text-muted">
                   {{ notice }}

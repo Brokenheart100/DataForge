@@ -343,7 +343,7 @@ function onCellKeyDown(event: CellKeyDownEvent<GridRow>): void {
   word-break: break-word;
   font-size: 12px;
   padding: 8px;
-  background: var(--vscode-editor-background, #fff);
+  background: var(--df-surface);
 }
 
 :deep(.ag-cell-inline-editing) {
