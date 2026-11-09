@@ -4,7 +4,7 @@
 能力矩阵与差异清单见 [datagrip-parity.md](datagrip-parity.md)，目标架构见
 [architecture.md](architecture.md)，依赖取舍见 [dependencies.md](dependencies.md)。
 
-## 1. 现状（0.1.5）
+## 1. 现状（0.1.6）
 
 | 已交付 | 说明 |
 | --- | --- |
@@ -106,7 +106,7 @@ PostgreSQL 实现 → 树搜索与 DDL 面板 → 测试。
 
 ## 7. 阶段 D：数据编辑强化
 
-状态：✅ 实现完成（过滤/多列排序/粘贴/生成列/预览/跳页；keyset 分页留待 0.1.5）。
+状态：✅ 实现完成（过滤/多列排序/粘贴/生成列/预览/跳页；keyset 分页留待后续）。
 
 目标：接近 DataGrip 的表格编辑体验（不引入自研网格）。
 
